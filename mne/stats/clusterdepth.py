@@ -1,19 +1,25 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# Authors: Jaromil Frossard <jaromil.frossard@gmail.com>
+#
+# License: Simplified BSD
 import numpy as np
 #import scipy as sp
 import scipy.sparse as sparse
 import scipy.stats as stats
-from mne.parallel import parallel_func, check_n_jobs
-from mne.stats.cluster_level import (_check_fun,
+from ..parallel import parallel_func, check_n_jobs
+from ..stats.cluster_level import (_check_fun,
                                      _setup_adjacency, _find_clusters, _cluster_indices_to_mask,
                                      _cluster_mask_to_indices, _get_partitions_from_adjacency,
                                      _do_permutations, _pval_from_histogram, _reshape_clusters)
-from mne.utils import (verbose, split_list, ProgressBar, _check_option, _validate_type, check_random_state, logger, warn)
+from ..utils import (verbose, split_list, ProgressBar, _check_option, _validate_type, check_random_state, logger, warn)
 
 
 @verbose
 def spatio_temporal_clusterdepth_test(
         X, threshold=None, n_permutations=1024, tail=0, stat_fun=None,
-        adjacency=None, n_jobs=1, seed=None, border = "reverse",
+        n_jobs=1, seed=None, border = "reverse",
         out_type='indices', exclude = None, verbose=None,
         check_disjoint=False, buffer_size=1000):
     #n_samples, n_times, n_vertices = X[0].shape
@@ -25,7 +31,7 @@ def spatio_temporal_clusterdepth_test(
     #    exclude = None
     return permutation_clusterdepth_test(
         X, threshold=threshold, stat_fun=stat_fun, tail=tail,
-        n_permutations=n_permutations, adjacency=adjacency,
+        n_permutations=n_permutations,
         n_jobs=n_jobs, seed=seed, border = border, buffer_size=buffer_size,
         out_type='indices',exclude = exclude, check_disjoint=check_disjoint,
         verbose = verbose)
@@ -35,13 +41,13 @@ def spatio_temporal_clusterdepth_test(
 @verbose
 def permutation_clusterdepth_test(
         X, threshold=None, n_permutations=1024, tail=0, stat_fun=None,
-        adjacency=None, n_jobs=1, seed=None,  exclude=None,
+         n_jobs=1, seed=None,  exclude=None,
         border = "reverse", out_type='indices',
         buffer_size=1000, check_disjoint=False, verbose=None):
     stat_fun, threshold = _check_fun(X, stat_fun, threshold, tail, 'between')
     return _permutation_clusterdepth_test(
         X=X, threshold=threshold, n_permutations=n_permutations, tail=tail,
-        stat_fun=stat_fun, adjacency=adjacency, n_jobs=n_jobs, seed=seed,
+        stat_fun=stat_fun, n_jobs=n_jobs, seed=seed,
         out_type='indices', exclude = exclude, border = border,
         check_disjoint=check_disjoint, buffer_size=buffer_size)
 
@@ -182,7 +188,7 @@ def troendle(distribution, statistics, tail):
 
 
 def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
-                                   adjacency, n_jobs, seed, border, out_type, exclude,
+                                   n_jobs, seed, border, out_type, exclude,
                                    check_disjoint, buffer_size):
     n_jobs = check_n_jobs(n_jobs)
     """Aux Function.
