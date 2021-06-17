@@ -9,6 +9,7 @@ from .cluster_level import (
     permutation_cluster_test, permutation_cluster_1samp_test,
     spatio_temporal_cluster_test, spatio_temporal_cluster_1samp_test,
     _st_mask_from_s_inds, summarize_clusters_stc)
+from .clusterdepth import spatio_temporal_clusterdepth_test
 from .multi_comp import fdr_correction, bonferroni_correction
 from .regression import linear_regression, linear_regression_raw
 from ._adjacency import combine_adjacency
