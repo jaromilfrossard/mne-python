@@ -119,7 +119,7 @@ def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, ma
             for cli in range(len(clusters)):
                 if len(clusters[cli]) >= depthi + 1:
                     # reversing the clusters at the border
-                    if (starting[cli] == 1) & (border == "reverse"):
+                    if starting[cli] & (border == "reverse"):
                         mx_cl[cli] = t_obs_surr[clusters[cli][-1 - depthi]]
                     else:
                         mx_cl[cli] = t_obs_surr[clusters[cli][depthi]]
@@ -138,7 +138,7 @@ def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, ma
             mx_cl = [0.] * len(clusters)
             for cli in range(len(clusters)):
                 if len(clusters[cli]) >= depthi + 1:
-                    if (ending[cli] == 1) & (border == "reverse"):
+                    if ending[cli] & (border == "reverse"):
                         mx_cl[cli] = t_obs_surr[clusters[cli][depthi]]
                     else:
                         mx_cl[cli] = t_obs_surr[clusters[cli][-1 - depthi]]
