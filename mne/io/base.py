@@ -8,7 +8,7 @@
 #          Stefan Appelhoff <stefan.appelhoff@mailbox.org>
 #          Clemens Brunner <clemens.brunner@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from contextlib import nullcontext
 from copy import deepcopy
@@ -85,6 +85,40 @@ class TimeMixin(object):
             index = np.round(index)
         return index.astype(int)
 
+    def _handle_tmin_tmax(self, tmin, tmax):
+        """Convert seconds to index into data.
+
+        Parameters
+        ----------
+        tmin : int | float | None
+            Start time of data to get in seconds.
+        tmax : int | float | None
+            End time of data to get in seconds.
+
+        Returns
+        -------
+        start : int
+            Integer index into data corresponding to tmin.
+        stop : int
+            Integer index into data corresponding to tmax.
+
+        """
+        _validate_type(tmin, types=('numeric', None), item_name='tmin',
+                       type_name="int, float, None")
+        _validate_type(tmax, types=('numeric', None), item_name='tmax',
+                       type_name='int, float, None')
+
+        # handle tmin/tmax as start and stop indices into data array
+        n_times = self.times.size
+        start = 0 if tmin is None else self.time_as_index(tmin)[0]
+        stop = n_times if tmax is None else self.time_as_index(tmax)[0]
+
+        # truncate start/stop to the open interval [0, n_times]
+        start = min(max(0, start), n_times)
+        stop = min(max(0, stop), n_times)
+
+        return start, stop
+
 
 @fill_doc
 class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
@@ -93,8 +127,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
 
     Parameters
     ----------
-    info : dict
-        A dict passed from the subclass.
+    %(info_not_none)s
     preload : bool | str | ndarray
         Preload data into memory for data manipulation and faster indexing.
         If True, the data will be preloaded into memory (fast, requires
@@ -800,7 +833,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
     @verbose
     def get_data(self, picks=None, start=0, stop=None,
                  reject_by_annotation=None, return_times=False, units=None,
-                 verbose=None):
+                 *, tmin=None, tmax=None, verbose=None):
         """Get data in the given range.
 
         Parameters
@@ -817,22 +850,17 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
             'bad' are omitted. If 'NaN', the bad samples are filled with NaNs.
         return_times : bool
             Whether to return times as well. Defaults to False.
-        units : str | dict | None
-            Specify the unit(s) that the data should be returned in. If
-            ``None`` (default), the data is returned in the
-            channel-type-specific default units, which are SI units (see
-            :ref:`units` and :term:`data channels`). If a string, must be a
-            sub-multiple of SI units that will be used to scale the data from
-            all channels of the type associated with that unit. This only works
-            if the data contains one channel type that has a unit (unitless
-            channel types are left unchanged). For example if there are only
-            EEG and STIM channels, ``units='uV'`` will scale EEG channels to
-            micro-Volts while STIM channels will be unchanged. Finally, if a
-            dictionary is provided, keys must be channel types, and values must
-            be units to scale the data of that channel type to. For example
-            ``dict(grad='fT/cm', mag='fT')`` will scale the corresponding types
-            accordingly, but all other channel types will remain in their
-            channel-type-specific default unit.
+        %(units)s
+        tmin : int | float | None
+            Start time of data to get in seconds. The ``tmin`` parameter is
+            ignored if the ``start`` parameter is bigger than 0.
+
+            .. versionadded:: 0.24.0
+        tmax : int | float | None
+            End time of data to get in seconds. The ``tmax`` parameter is
+            ignored if the ``stop`` parameter is defined.
+
+            .. versionadded:: 0.24.0
         %(verbose_meth)s
 
         Returns
@@ -847,48 +875,43 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
         -----
         .. versionadded:: 0.14.0
         """
+        # validate types
+        _validate_type(start, types=('int-like'), item_name='start',
+                       type_name='int')
+        _validate_type(stop, types=('int-like', None), item_name='stop',
+                       type_name='int, None')
+
         picks = _picks_to_idx(self.info, picks, 'all', exclude=())
 
-        # Convert into the specified unit
-        _validate_type(units, types=(None, str, dict), item_name="units")
-        needs_conversion = False
-        ch_factors = np.ones(len(picks))
-        si_units = _handle_default('si_units')
-        # Convert to dict if str units
-        if isinstance(units, str):
-            # Check that there is only one channel type
-            ch_types = self.get_channel_types(picks=picks, unique=True)
-            unit_ch_type = list(set(ch_types) & set(si_units.keys()))
-            if len(unit_ch_type) > 1:
-                raise ValueError('"units" cannot be str if there is more than '
-                                 'one channel type with a unit '
-                                 f'{unit_ch_type}.')
-            units = {unit_ch_type[0]: units}  # make the str argument a dict
-        # Loop over the dict to get channel factors
-        if isinstance(units, dict):
-            for ch_type, ch_unit in units.items():
-                # Get the scaling factors
-                scaling = _get_scaling(ch_type, ch_unit)
-                if scaling != 1:
-                    needs_conversion = True
-                    ch_types = self.get_channel_types(picks=picks)
-                    indices = [i_ch for i_ch, ch in enumerate(ch_types)
-                               if ch == ch_type]
-                    ch_factors[indices] *= scaling
+        # Get channel factors for conversion into specified unit
+        # (vector of ones if no conversion needed)
+        if units is not None:
+            ch_factors = _get_ch_factors(self, units, picks)
 
         # convert to ints
         picks = np.atleast_1d(np.arange(self.info['nchan'])[picks])
-        start = 0 if start is None else start
-        stop = min(self.n_times if stop is None else stop, self.n_times)
+
+        # handle start/tmin stop/tmax
+        tmin_start, tmax_stop = self._handle_tmin_tmax(tmin, tmax)
+
+        # tmin/tmax are ignored if start/stop are defined to
+        # something other than their defaults
+        start = tmin_start if start == 0 else start
+        stop = tmax_stop if stop is None else stop
+
+        # truncate start/stop to the open interval [0, n_times]
+        start = min(max(0, start), self.n_times)
+        stop = min(max(0, stop), self.n_times)
+
         if len(self.annotations) == 0 or reject_by_annotation is None:
             getitem = self._getitem(
                 (picks, slice(start, stop)), return_times=return_times)
             if return_times:
                 data, times = getitem
-                if needs_conversion:
+                if units is not None:
                     data *= ch_factors[:, np.newaxis]
                 return data, times
-            if needs_conversion:
+            if units is not None:
                 getitem *= ch_factors[:, np.newaxis]
             return getitem
         _check_option('reject_by_annotation', reject_by_annotation.lower(),
@@ -899,7 +922,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
         ends = np.minimum(ends[keep], stop)
         if len(onsets) == 0:
             data, times = self[picks, start:stop]
-            if needs_conversion:
+            if units is not None:
                 data *= ch_factors[:, np.newaxis]
             if return_times:
                 return data, times
@@ -942,7 +965,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
         else:
             data, times = self[picks, start:stop]
 
-        if needs_conversion:
+        if units is not None:
             data *= ch_factors[:, np.newaxis]
         if return_times:
             return data, times
@@ -1511,7 +1534,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
                  area_mode='std', area_alpha=0.33, dB=True, estimate='auto',
                  show=True, n_jobs=1, average=False, line_alpha=None,
                  spatial_colors=True, sphere=None, window='hamming',
-                 verbose=None):
+                 exclude='bads', verbose=None):
         return plot_raw_psd(self, fmin=fmin, fmax=fmax, tmin=tmin, tmax=tmax,
                             proj=proj, n_fft=n_fft, n_overlap=n_overlap,
                             reject_by_annotation=reject_by_annotation,
@@ -1520,7 +1543,7 @@ class BaseRaw(ProjMixin, ContainsMixin, UpdateChannelsMixin, SetChannelsMixin,
                             dB=dB, estimate=estimate, show=show, n_jobs=n_jobs,
                             average=average, line_alpha=line_alpha,
                             spatial_colors=spatial_colors, sphere=sphere,
-                            window=window, verbose=verbose)
+                            window=window, exclude=exclude, verbose=verbose)
 
     @copy_function_doc_to_method_doc(plot_raw_psd_topo)
     def plot_psd_topo(self, tmin=0., tmax=None, fmin=0, fmax=100, proj=False,
@@ -1961,6 +1984,50 @@ def _convert_slice(sel):
         return sel
 
 
+def _get_ch_factors(inst, units, picks_idxs):
+    """Get scaling factors for data, given units.
+
+    Parameters
+    ----------
+    inst : instance of Raw | Epochs | Evoked
+        The instance.
+    %(units)s
+    picks_idxs : ndarray
+        The picks as provided through _picks_to_idx.
+
+    Returns
+    -------
+    ch_factors : ndarray of floats, shape(len(picks),)
+        The sacling factors for each channel, ordered according
+        to picks.
+
+    """
+    _validate_type(units, types=(None, str, dict), item_name="units")
+    ch_factors = np.ones(len(picks_idxs))
+    si_units = _handle_default('si_units')
+    ch_types = inst.get_channel_types(picks=picks_idxs)
+    # Convert to dict if str units
+    if isinstance(units, str):
+        # Check that there is only one channel type
+        unit_ch_type = list(set(ch_types) & set(si_units.keys()))
+        if len(unit_ch_type) > 1:
+            raise ValueError('"units" cannot be str if there is more than '
+                             'one channel type with a unit '
+                             f'{unit_ch_type}.')
+        units = {unit_ch_type[0]: units}  # make the str argument a dict
+    # Loop over the dict to get channel factors
+    if isinstance(units, dict):
+        for ch_type, ch_unit in units.items():
+            # Get the scaling factors
+            scaling = _get_scaling(ch_type, ch_unit)
+            if scaling != 1:
+                indices = [i_ch for i_ch, ch in enumerate(ch_types)
+                           if ch == ch_type]
+                ch_factors[indices] *= scaling
+
+    return ch_factors
+
+
 def _get_scaling(ch_type, target_unit):
     """Return the scaling factor based on the channel type and a target unit.
 
@@ -2205,7 +2272,7 @@ def _write_raw_fid(raw, info, picks, fid, cals, part_idx, start, stop,
             logger.info('Skipping data chunk due to small buffer ... '
                         '[done]')
             break
-        logger.debug('Writing ...')
+        logger.debug(f'Writing FIF {first:6d} ... {last:6d} ...')
         _write_raw_buffer(fid, data, cals, fmt)
 
         pos = fid.tell()
@@ -2253,6 +2320,7 @@ def _write_raw_fid(raw, info, picks, fid, cals, part_idx, start, stop,
     return final_fname
 
 
+@fill_doc
 def _start_writing_raw(name, info, sel, data_type,
                        reset_range, annotations):
     """Start write raw data in file.
@@ -2261,8 +2329,7 @@ def _start_writing_raw(name, info, sel, data_type,
     ----------
     name : string
         Name of the file to create.
-    info : dict
-        Measurement info.
+    %(info_not_none)s
     sel : array of int | None
         Indices of channels to include. If None, all channels
         are included.

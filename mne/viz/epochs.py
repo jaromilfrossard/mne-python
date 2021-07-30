@@ -795,16 +795,29 @@ def plot_epochs(epochs, picks=None, scalings=None, n_epochs=20, n_channels=20,
     # events
     if events is not None:
         event_nums = events[:, 2]
-        boundary_samps = epochs.events[1:, 0] - epochs.time_as_index(0)
-        event_ixs = np.searchsorted(boundary_samps, events[:, 0], side='right')
-        event_samp_offsets = (events[:, 0] - epochs.events[:, 0][event_ixs]
-                              + epochs.time_as_index(0))
-        event_times = ((np.arange(len(epochs)) * len(epochs.times))[event_ixs]
-                       + event_samp_offsets) / sfreq
-        # don't show events that are beyond the range of their epoch
-        mask = event_samp_offsets <= len(epochs.times)
-        event_times = event_times[mask]
-        event_nums = event_nums[mask]
+        event_samps = events[:, 0]
+        epoch_n_samps = len(epochs.times)
+        # handle overlapping epochs (each event may show up in multiple places)
+        boundaries = (epochs.events[:, [0]] + np.array([-1, 1])
+                      * epochs.time_as_index(0))
+        in_bounds = np.logical_and(boundaries[:, [0]] <= event_samps,
+                                   event_samps < boundaries[:, [1]])
+        event_ixs = [np.nonzero(a)[0] for a in in_bounds.T]
+        warned = False
+        event_times = list()
+        event_numbers = list()
+        for samp, num, _ixs in zip(event_samps, event_nums, event_ixs):
+            relevant_epoch_events = epochs.events[:, 0][_ixs]
+            if len(relevant_epoch_events) > 1 and not warned:
+                logger.info('You seem to have overlapping epochs. Some event '
+                            'lines may be duplicated in the plot.')
+                warned = True
+            offsets = samp - relevant_epoch_events + epochs.time_as_index(0)
+            this_event_times = (_ixs * epoch_n_samps + offsets) / sfreq
+            event_times.extend(this_event_times)
+            event_numbers.extend([num] * len(_ixs))
+        event_nums = np.array(event_numbers)
+        event_times = np.array(event_times)
     else:
         event_nums = None
         event_times = None
@@ -904,7 +917,7 @@ def plot_epochs_psd(epochs, fmin=0, fmax=np.inf, tmin=None, tmax=None,
                     xscale='linear', area_mode='std', area_alpha=0.33,
                     dB=True, estimate='auto', show=True, n_jobs=1,
                     average=False, line_alpha=None, spatial_colors=True,
-                    sphere=None, verbose=None):
+                    sphere=None, exclude='bads', verbose=None):
     """%(plot_psd_doc)s.
 
     Parameters
@@ -949,6 +962,12 @@ def plot_epochs_psd(epochs, fmin=0, fmax=np.inf, tmin=None, tmax=None,
     %(plot_psd_line_alpha)s
     %(plot_psd_spatial_colors)s
     %(topomap_sphere_auto)s
+    exclude : list of str | 'bads'
+        Channels names to exclude from being shown. If 'bads', the bad channels
+        are excluded. Pass an empty list to plot all channels (including
+        channels marked "bad", if any).
+
+        .. versionadded:: 0.24.0
     %(verbose)s
 
     Returns
@@ -968,6 +987,6 @@ def plot_epochs_psd(epochs, fmin=0, fmax=np.inf, tmin=None, tmax=None,
         line_alpha=line_alpha, area_alpha=area_alpha, color=color,
         spatial_colors=spatial_colors, n_jobs=n_jobs, bandwidth=bandwidth,
         adaptive=adaptive, low_bias=low_bias, normalization=normalization,
-        window='hamming')
+        window='hamming', exclude=exclude)
     plt_show(show)
     return fig

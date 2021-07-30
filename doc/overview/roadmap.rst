@@ -43,6 +43,29 @@ in action (click for link to YouTube):
    :target: https://www.youtube.com/watch?v=xKdjZZphdNc
    :width: 50%
 
+First-class OPM support
+^^^^^^^^^^^^^^^^^^^^^^^
+MNE-Python has support for reading some OPM data formats such as FIF, but
+support is still rudimentary. Support should be added for other manufacturers,
+and standard (and/or novel) preprocessing routines should be added to deal with
+coregistration adjustment, forward modeling, and OPM-specific artifacts.
+
+Better sEEG/ECoG/DBS support
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Some support already exists for iEEG electrodes in MNE-Python thanks in part
+to standard abstractions. However, iEEG-specific pipeline steps (e.g.,
+electrode localization) and visualizations (e.g., per-shaft topo plots,
+:ref:`time-frequency-viz`) are missing. MNE-Python should work with members of
+the ECoG/sEEG community to work with or build in existing tools, and extend
+native functionality for depth electrodes.
+
+Deep source modeling
+^^^^^^^^^^^^^^^^^^^^
+Existing source modeling and inverse routines are not explicitly designed to
+deal with deep sources. Advanced algorithms exist from MGH for enhancing
+deep source localization, and these should be implemented and vetted in
+MNE-Python.
+
 Clustering statistics API
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 The current clustering statistics code has limited functionality. It should be
@@ -84,8 +107,6 @@ as well as:
     Kymata atlas. The participants are healthy human adults listening to the
     radio and/or watching films, and the data is comprised of (averaged) EEG
     and MEG sensor data and source current reconstructions.
-- `BrainSignals <http://www.brainsignals.de>`__
-    A website that lists a number of MEG datasets available for download.
 - `BNCI Horizon <http://bnci-horizon-2020.eu/database/data-sets>`__
     BCI datasets.
 

@@ -59,6 +59,12 @@
 .. _`scipy github`: http://github.com/scipy/scipy
 .. _`scipy mailing list`: http://mail.scipy.org/mailman/listinfo/scipy-dev
 
+.. freesurfer
+
+.. _freesurfer: https://surfer.nmr.mgh.harvard.edu/
+.. _`freesufer github`: https://github.com/freesurfer/freesurfer
+.. _`freesurfer mailing list`: https://surfer.nmr.mgh.harvard.edu/fswiki/FreeSurferSupport
+
 
 .. nipy
 

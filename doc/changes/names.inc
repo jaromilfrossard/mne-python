@@ -22,7 +22,7 @@
 
 .. _Andrew Dykstra: https://github.com/adykstra
 
-.. _Romain Trachel: http://www.lscp.net/braware/trachelBr.html
+.. _Romain Trachel: https://fr.linkedin.com/in/trachelr
 
 .. _Christopher Dinh: https://github.com/chdinh
 
@@ -188,7 +188,7 @@
 
 .. _Thomas Hartmann: https://github.com/thht
 
-.. _Steven Gutstein: http://vll.cs.utep.edu/team.html
+.. _Steven Gutstein: http://vll.cs.utep.edu/people.html
 
 .. _Peter Molfese: https://github.com/pmolfese
 
@@ -399,3 +399,7 @@
 .. _Xiaokai Xia: https://github.com/dddd1007
 
 .. _Marian Dovgialo: https://github.com/mdovgialo
+
+.. _Pierre-Antoine Bannier: https://github.com/PABannier
+
+.. _Darin Erat Sleiter: https://github.com/dsleiter

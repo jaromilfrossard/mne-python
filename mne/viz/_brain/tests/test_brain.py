@@ -19,9 +19,9 @@ from numpy.testing import assert_allclose, assert_array_equal
 from mne import (read_source_estimate, read_evokeds, read_cov,
                  read_forward_solution, pick_types_forward,
                  SourceEstimate, MixedSourceEstimate, write_surface,
-                 VolSourceEstimate)
+                 VolSourceEstimate, vertex_to_mni)
 from mne.minimum_norm import apply_inverse, make_inverse_operator
-from mne.source_space import (read_source_spaces, vertex_to_mni,
+from mne.source_space import (read_source_spaces,
                               setup_volume_source_space)
 from mne.datasets import testing
 from mne.utils import check_version, requires_pysurfer
@@ -104,10 +104,10 @@ class TstVTKPicker(object):
         return np.array(self.GetPickPosition()) - (0, 0, 100)
 
 
-def test_layered_mesh(renderer_interactive_pyvista):
+def test_layered_mesh(renderer_interactive_pyvistaqt):
     """Test management of scalars/colormap overlay."""
     mesh = _LayeredMesh(
-        renderer=renderer_interactive_pyvista._get_renderer(size=(300, 300)),
+        renderer=renderer_interactive_pyvistaqt._get_renderer(size=(300, 300)),
         vertices=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]),
         triangles=np.array([[0, 1, 2], [1, 2, 3]]),
         normals=np.array([[0, 0, 1]] * 4),
@@ -149,7 +149,7 @@ def test_layered_mesh(renderer_interactive_pyvista):
 
 
 @testing.requires_testing_data
-def test_brain_gc(renderer_pyvista, brain_gc):
+def test_brain_gc(renderer_pyvistaqt, brain_gc):
     """Test that a minimal version of Brain gets GC'ed."""
     brain = Brain('fsaverage', 'both', 'inflated', subjects_dir=subjects_dir)
     brain.close()
@@ -168,7 +168,7 @@ def test_brain_routines(renderer, brain_gc):
 
 
 @testing.requires_testing_data
-def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
+def test_brain_init(renderer_pyvistaqt, tmpdir, pixel_ratio, brain_gc):
     """Test initialization of the Brain instance."""
     from mne.source_estimate import _BaseSourceEstimate
 
@@ -196,7 +196,10 @@ def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
         Brain(hemi=hemi, surf=surf, interaction='foo', **kwargs)
     with pytest.raises(FileNotFoundError, match=r'lh\.whatever'):
         Brain(subject_id, 'lh', 'whatever')
-    renderer_pyvista.backend._close_all()
+    with pytest.raises(ValueError, match='`surf` cannot be seghead'):
+        Brain(hemi='lh', surf='seghead', **kwargs)
+    Brain(subject_id, hemi=None, surf=None)  # test no surfaces
+    renderer_pyvistaqt.backend._close_all()
 
     brain = Brain(hemi=hemi, surf=surf, size=size, title=title,
                   cortex=cortex, units='m',
@@ -312,6 +315,13 @@ def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
     brain.add_foci([0], coords_as_verts=True,
                    hemi=hemi, color='blue')
 
+    # add head
+    brain.add_head(color='red', alpha=0.1)
+
+    # add volume labels
+    brain.add_volume_labels(
+        aseg='aseg', labels=('Brain-Stem', 'Left-Hippocampus',
+                             'Left-Amygdala'))
     # add text
     brain.add_text(x=0, y=0, text='foo')
     brain.close()
@@ -334,15 +344,17 @@ def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
     for a, b, p, color in zip(annots, borders, alphas, colors):
         brain.add_annotation(a, b, p, color=color)
 
-    view_args = dict(view=dict(focalpoint=(1e-5, 1e-5, 1e-5)),
-                     roll=1, distance=500)
+    view_args = dict(roll=1, distance=500, focalpoint=(1e-5, 1e-5, 1e-5))
     cam = brain._renderer.figure.plotter.camera
     previous_roll = cam.GetRoll()
     brain.show_view(**view_args)
-    assert np.allclose(cam.GetFocalPoint(), view_args["view"]["focalpoint"])
-    assert np.allclose(cam.GetDistance(), view_args["distance"])
-    assert np.allclose(cam.GetRoll(), previous_roll + view_args["roll"])
+    assert_allclose(cam.GetFocalPoint(), view_args["focalpoint"])
+    assert_allclose(cam.GetDistance(), view_args["distance"])
+    assert_allclose(cam.GetRoll(), previous_roll + view_args["roll"])
     del view_args
+
+    with pytest.warns(DeprecationWarning, match='`view` is a dict'):
+        brain.show_view(view=dict(azimuth=180., elevation=90.))
 
     # image and screenshot
     fname = path.join(str(tmpdir), 'test.png')
@@ -352,15 +364,17 @@ def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
     fp = np.array(
         brain._renderer.figure.plotter.renderer.ComputeVisiblePropBounds())
     fp = (fp[1::2] + fp[::2]) * 0.5
-    view_args = dict(azimuth=180., elevation=90., focalpoint='auto')
-    brain.show_view(view=view_args)
-    assert np.allclose(brain._renderer.figure._azimuth, view_args["azimuth"])
-    assert np.allclose(
-        brain._renderer.figure._elevation, view_args["elevation"])
-    assert np.allclose(cam.GetFocalPoint(), fp)
+    azimuth, elevation = 180., 90.
+    for view_args in (dict(azimuth=azimuth, elevation=elevation,
+                           focalpoint='auto'),
+                      dict(view='lateral', hemi='lh')):
+        brain.show_view(**view_args)
+        assert_allclose(brain._renderer.figure._azimuth, azimuth)
+        assert_allclose(brain._renderer.figure._elevation, elevation)
+        assert_allclose(cam.GetFocalPoint(), fp)
     del view_args
-    img = brain.screenshot(mode='rgb')
-    want_size = np.array([size[0] * pixel_ratio, size[1] * pixel_ratio, 3])
+    img = brain.screenshot(mode='rgba')
+    want_size = np.array([size[0] * pixel_ratio, size[1] * pixel_ratio, 4])
     assert_allclose(img.shape, want_size)
     brain.close()
 
@@ -369,7 +383,7 @@ def test_brain_init(renderer_pyvista, tmpdir, pixel_ratio, brain_gc):
 @pytest.mark.skipif(os.getenv('CI_OS_NAME', '') == 'osx',
                     reason='Unreliable/segfault on macOS CI')
 @pytest.mark.parametrize('hemi', ('lh', 'rh'))
-def test_single_hemi(hemi, renderer_interactive_pyvista, brain_gc):
+def test_single_hemi(hemi, renderer_interactive_pyvistaqt, brain_gc):
     """Test single hemi support."""
     stc = read_source_estimate(fname_stc)
     idx, order = (0, 1) if hemi == 'lh' else (1, -1)
@@ -457,7 +471,7 @@ def tiny(tmpdir):
 
 
 @pytest.mark.filterwarnings('ignore:.*constrained_layout not applied.*:')
-def test_brain_screenshot(renderer_interactive_pyvista, tmpdir, brain_gc):
+def test_brain_screenshot(renderer_interactive_pyvistaqt, tmpdir, brain_gc):
     """Test time viewer screenshot."""
     # XXX disable for sprint because it's too unreliable
     if sys.platform == 'darwin' and os.getenv('GITHUB_ACTIONS', '') == 'true':
@@ -485,7 +499,7 @@ def _assert_brain_range(brain, rng):
 
 @testing.requires_testing_data
 @pytest.mark.slowtest
-def test_brain_time_viewer(renderer_interactive_pyvista, pixel_ratio,
+def test_brain_time_viewer(renderer_interactive_pyvistaqt, pixel_ratio,
                            brain_gc):
     """Test time viewer primitives."""
     with pytest.raises(ValueError, match="between 0 and 1"):
@@ -557,7 +571,7 @@ def test_brain_time_viewer(renderer_interactive_pyvista, pixel_ratio,
     # (it keeps the window size and expands the 3D area when the interface
     # is toggled off)
     brain.toggle_interface(value=True)
-    brain.show_view(view=dict(azimuth=180., elevation=90.))
+    brain.show_view(azimuth=180., elevation=90.)
     img = brain.screenshot(mode='rgb')
     want_shape = np.array([300 * pixel_ratio, 300 * pixel_ratio, 3])
     assert_allclose(img.shape, want_shape)
@@ -578,7 +592,7 @@ def test_brain_time_viewer(renderer_interactive_pyvista, pixel_ratio,
     pytest.param('mixed', marks=pytest.mark.slowtest),
 ])
 @pytest.mark.slowtest
-def test_brain_traces(renderer_interactive_pyvista, hemi, src, tmpdir,
+def test_brain_traces(renderer_interactive_pyvistaqt, hemi, src, tmpdir,
                       brain_gc):
     """Test brain traces."""
     hemi_str = list()
@@ -770,7 +784,7 @@ something
 
 @testing.requires_testing_data
 @pytest.mark.slowtest
-def test_brain_linkviewer(renderer_interactive_pyvista, brain_gc):
+def test_brain_linkviewer(renderer_interactive_pyvistaqt, brain_gc):
     """Test _LinkViewer primitives."""
     brain1 = _create_testing_brain(hemi='lh', show_traces=False)
     brain2 = _create_testing_brain(hemi='lh', show_traces='separate')

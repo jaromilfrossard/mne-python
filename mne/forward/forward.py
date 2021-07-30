@@ -2,7 +2,7 @@
 #          Alexandre Gramfort <alexandre.gramfort@inria.fr>
 #          Martin Luessi <mluessi@nmr.mgh.harvard.edu>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 # The computations in this code were primarily derived from Matti Hämäläinen's
 # C code.
@@ -246,6 +246,7 @@ def _read_one(fid, node):
     return one
 
 
+@fill_doc
 def _read_forward_meas_info(tree, fid):
     """Read light measurement info from forward operator.
 
@@ -258,8 +259,7 @@ def _read_forward_meas_info(tree, fid):
 
     Returns
     -------
-    info : instance of Info
-        The measurement info.
+    %(info_not_none)s
     """
     # This function assumes fid is being used as a context manager
     info = Info()
@@ -894,6 +894,7 @@ def is_fixed_orient(forward, orig=False):
     return fixed_ori
 
 
+@fill_doc
 def write_forward_meas_info(fid, info):
     """Write measurement info stored in forward solution.
 
@@ -901,8 +902,7 @@ def write_forward_meas_info(fid, info):
     ----------
     fid : file id
         The file id
-    info : instance of Info
-        The measurement info.
+    %(info_not_none)s
     """
     info._check_consistency()
     #
@@ -1100,8 +1100,7 @@ def compute_depth_prior(forward, info, exp=0.8, limit=10.0,
     ----------
     forward : instance of Forward
         The forward solution.
-    info : instance of Info
-        The measurement info.
+    %(info_not_none)s
     exp : float
         Exponent for the depth weighting, must be between 0 and 1.
     limit : float | None
@@ -1298,7 +1297,7 @@ def _stc_src_sel(src, stc, on_missing='raise',
     return src_sel, stc_sel, out_vertices
 
 
-def _fill_measurement_info(info, fwd, sfreq):
+def _fill_measurement_info(info, fwd, sfreq, data):
     """Fill the measurement info of a Raw or Evoked object."""
     sel = pick_channels(info['ch_names'], fwd['sol']['row_names'])
     info = pick_info(info, sel)
@@ -1316,7 +1315,11 @@ def _fill_measurement_info(info, fwd, sfreq):
                 lowpass=sfreq / 2., sfreq=sfreq, projs=[])
     info._check_consistency()
 
-    return info
+    # reorder data (which is in fwd order) to match that of info
+    order = [fwd['sol']['row_names'].index(name) for name in info['ch_names']]
+    data = data[order]
+
+    return info, data
 
 
 @verbose
@@ -1378,8 +1381,7 @@ def apply_forward(fwd, stc, info, start=None, stop=None, use_cps=True,
         Forward operator to use.
     stc : SourceEstimate
         The source estimate from which the sensor space data is computed.
-    info : instance of Info
-        Measurement info to generate the evoked.
+    %(info_not_none)s
     start : int, optional
         Index of first time sample (index not time is seconds).
     stop : int, optional
@@ -1418,9 +1420,9 @@ def apply_forward(fwd, stc, info, start=None, stop=None, use_cps=True,
 
     # fill the measurement info
     sfreq = float(1.0 / stc.tstep)
-    info_out = _fill_measurement_info(info, fwd, sfreq)
+    info, data = _fill_measurement_info(info, fwd, sfreq, data)
 
-    evoked = EvokedArray(data, info_out, times[0], nave=1)
+    evoked = EvokedArray(data, info, times[0], nave=1)
 
     evoked.times = times
     evoked._update_first_last()
@@ -1448,8 +1450,7 @@ def apply_forward_raw(fwd, stc, info, start=None, stop=None,
         Forward operator to use.
     stc : SourceEstimate
         The source estimate from which the sensor space data is computed.
-    info : instance of Info
-        The measurement info.
+    %(info_not_none)s
     start : int, optional
         Index of first time sample (index not time is seconds).
     stop : int, optional
@@ -1483,7 +1484,7 @@ def apply_forward_raw(fwd, stc, info, start=None, stop=None,
                                  use_cps=use_cps)
 
     sfreq = 1.0 / stc.tstep
-    info = _fill_measurement_info(info, fwd, sfreq)
+    info, data = _fill_measurement_info(info, fwd, sfreq, data)
     info['projs'] = []
     # store sensor data in Raw object using the info
     raw = RawArray(data, info)

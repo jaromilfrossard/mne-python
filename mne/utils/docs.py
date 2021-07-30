@@ -2,7 +2,7 @@
 """The documentation functions."""
 # Authors: Eric Larson <larson.eric.d@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from copy import deepcopy
 import inspect
@@ -25,7 +25,7 @@ docdict = dict()
 docdict['verbose'] = """
 verbose : bool | str | int | None
     If not None, override default verbose level (see :func:`mne.verbose`
-    and :ref:`Logging documentation <tut_logging>` for more).
+    and :ref:`Logging documentation <python:tut-logging>` for more).
     If used, it should be passed as a keyword-argument only."""
 docdict['verbose_meth'] = (docdict['verbose'] + ' Defaults to self.verbose.')
 
@@ -98,13 +98,51 @@ saturated data.
 docdict['hitachi_notes'] = """\
 Hitachi does not encode their channel positions, so you will need to
 create a suitable mapping using :func:`mne.channels.make_standard_montage`
-or :func:`mne.channels.make_dig_montage` like:
+or :func:`mne.channels.make_dig_montage` like (for a 3x5/ETG-7000 example):
 
 >>> mon = mne.channels.make_standard_montage('standard_1020')
 >>> need = 'S1 D1 S2 D2 S3 D3 S4 D4 S5 D5 S6 D6 S7 D7 S8'.split()
 >>> have = 'F3 FC3 C3 CP3 P3 F5 FC5 C5 CP5 P5 F7 FT7 T7 TP7 P7'.split()
 >>> mon.rename_channels(dict(zip(have, need)))
 >>> raw.set_montage(mon)  # doctest: +SKIP
+
+The 3x3 (ETG-100) is laid out as two separate layouts::
+
+    S1--D1--S2    S6--D6--S7
+    |   |   |     |   |   |
+    D2--S3--D3    D7--S8--D8
+    |   |   |     |   |   |
+    S4--D4--S5    S9--D9--S10
+
+The 3x5 (ETG-7000) is laid out as::
+
+    S1--D1--S2--D2--S3
+    |   |   |   |   |
+    D3--S4--D4--S5--D5
+    |   |   |   |   |
+    S6--D6--S7--D7--S8
+
+The 4x4 (ETG-7000) is laid out as::
+
+    S1--D1--S2--D2
+    |   |   |   |
+    D3--S3--D4--S4
+    |   |   |   |
+    S5--D5--S6--D6
+    |   |   |   |
+    D7--S7--D8--S8
+
+The 3x11 (ETG-4000) is laid out as::
+
+    S1--D1--S2--D2--S3--D3--S4--D4--S5--D5--S6
+    |   |   |   |   |   |   |   |   |   |   |
+    D6--S7--D7--S8--D8--S9--D9--S10-D10-S11-D11
+    |   |   |   |   |   |   |   |   |   |   |
+    S12-D12-S13-D13-S14-D14-S16-D16-S17-D17-S18
+
+For each layout, the channels come from the (left-to-right) neighboring
+source-detector pairs in the first row, then between the first and second row,
+then the second row, etc.
 
 .. versionadded:: 0.24
 """
@@ -563,6 +601,26 @@ docdict['picks_all_data_noref'] = f'{picks_base} all data channels {noref}'
 docdict['picks_good_data_noref'] = f'{picks_base} good data channels {noref}'
 docdict['picks_nostr'] = f"""picks : list | slice | None
     {picks_intro} None (default) will pick all channels. {reminder_nostr}"""
+
+# Units
+docdict['units'] = """
+units : str | dict | None
+    Specify the unit(s) that the data should be returned in. If
+    ``None`` (default), the data is returned in the
+    channel-type-specific default units, which are SI units (see
+    :ref:`units` and :term:`data channels`). If a string, must be a
+    sub-multiple of SI units that will be used to scale the data from
+    all channels of the type associated with that unit. This only works
+    if the data contains one channel type that has a unit (unitless
+    channel types are left unchanged). For example if there are only
+    EEG and STIM channels, ``units='uV'`` will scale EEG channels to
+    micro-Volts while STIM channels will be unchanged. Finally, if a
+    dictionary is provided, keys must be channel types, and values must
+    be units to scale the data of that channel type to. For example
+    ``dict(grad='fT/cm', mag='fT')`` will scale the corresponding types
+    accordingly, but all other channel types will remain in their
+    channel-type-specific default unit.
+"""
 
 # Filtering
 docdict['l_freq'] = """
@@ -1264,7 +1322,7 @@ stcs : instance of SourceEstimate | list of instances of SourceEstimate
 
 # Forward
 docdict['on_missing_fwd'] = """
-on_missing : str
+on_missing : 'raise' | 'warn' | 'ignore'
     %s ``stc`` has vertices that are not in ``fwd``.
 """ % (_on_missing_base,)
 docdict['dig_kinds'] = """
@@ -1297,13 +1355,47 @@ trans : str | dict | instance of Transform | None
        Support for 'fsaverage' argument.
 """ % (_trans_base,)
 docdict['subjects_dir'] = """
-subjects_dir : str | None
+subjects_dir : str | pathlib.Path | None
     The path to the FreeSurfer subjects reconstructions.
-    It corresponds to FreeSurfer environment variable ``SUBJECTS_DIR``.
+    If None, defaults to the ``SUBJECTS_DIR`` environment variable.
+"""
+_info_base = ('The :class:`mne.Info` object with information about the '
+              'sensors and methods of measurement.')
+docdict['info_not_none'] = f"""
+info : mne.Info
+    {_info_base}
+"""
+docdict['info'] = """
+info : mne.Info | None
+    {_info_base}
+"""
+docdict['info_str'] = """
+info : mne.Info | str
+    {_info_base} If ``str``, then it should be a filepath to a file with
+    measurement information (e.g. :class:`mne.io.Raw`).
 """
 docdict['subject'] = """
 subject : str
     The FreeSurfer subject name.
+"""
+docdict['label_subject'] = """\
+subject : str | None
+    Subject which this label belongs to. Should only be specified if it is not
+    specified in the label.
+"""
+docdict['surface'] = """\
+surface : str
+    The surface along which to do the computations, defaults to ``'white'``
+    (the gray-white matter boundary).
+"""
+
+
+# Freesurfer
+docdict["aseg"] = """
+aseg : str
+    The anatomical segmentation file. Default ``aparc+aseg``. This may
+    be any anatomical segmentation file in the mri subdirectory of the
+    Freesurfer subject directory.
 """
 
 # Simulation
@@ -1526,7 +1618,7 @@ on_header_missing : str
     .. versionadded:: 0.22
 """ % (_on_missing_base,)
 docdict['on_missing_events'] = """
-on_missing : str
+on_missing : 'raise' | 'warn' | 'ignore'
     %s event numbers from ``event_id`` are missing from ``events``.
     When numbers from ``events`` are missing from ``event_id`` they will be
     ignored and a warning emitted; consider using ``verbose='error'`` in
@@ -1535,13 +1627,13 @@ on_missing : str
     .. versionadded:: 0.21
 """ % (_on_missing_base,)
 docdict['on_missing_montage'] = """
-on_missing : str
+on_missing : 'raise' | 'warn' | 'ignore'
     %s channels have missing coordinates.
 
     .. versionadded:: 0.20.1
 """ % (_on_missing_base,)
 docdict['on_missing_ch_names'] = """
-on_missing : str
+on_missing : 'raise' | 'warn' | 'ignore'
     %s entries in ch_names are not present in the raw instance.
 
     .. versionadded:: 0.23.0
@@ -1562,6 +1654,33 @@ allow_duplicates : bool
 """
 
 # Brain plotting
+docdict["view"] = """
+view : str
+    The name of the view to show (e.g. "lateral"). Other arguments
+    take precedence and modify the camera starting from the ``view``.
+"""
+docdict["roll"] = """
+roll : float | None
+    The roll of the camera rendering the view in degrees.
+"""
+docdict["distance"] = """
+distance : float | None
+    The distance from the camera rendering the view to the focalpoint
+    in plot units (either m or mm).
+"""
+docdict["azimuth"] = """
+azimuth : float
+    The azimuthal angle of the camera rendering the view in degrees.
+"""
+docdict["elevation"] = """
+elevation : float
+    The The zenith angle of the camera rendering the view in degrees.
+"""
+docdict["focalpoint"] = """
+focalpoint : tuple, shape (3,) | None
+    The focal point of the camera rendering the view: (x, y, z) in
+    plot units (either m or mm).
+"""
 docdict["clim"] = """
 clim : str | dict
     Colorbar properties specification. If 'auto', set clim automatically
@@ -1598,6 +1717,10 @@ colormap : str | np.ndarray of float, shape(n_colors, 3 | 4)
     Name of colormap to use or a custom look up table. If array, must
     be (n x 3) or (n x 4) array for with RGB or RGBA values between
     0 and 255.
+"""
+docdict["smooth"] = """
+smooth : float in [0, 1)
+    The smoothing factor to be applied. Default 0 is no smoothing.
 """
 docdict["transparent"] = """
 transparent : bool | None
@@ -2183,7 +2306,7 @@ raw : Raw object
     An instance of `~mne.io.Raw`.
 """
 docdict['epochs_on_missing'] = """
-on_missing : str
+on_missing : 'raise' | 'warn' | 'ignore'
     What to do if one or several event ids are not found in the recording.
     Valid keys are 'raise' | 'warn' | 'ignore'
     Default is 'raise'. If on_missing is 'warn' it will proceed but
@@ -2199,7 +2322,7 @@ reject_common = """
     respective epoch will be dropped.
 
     The dictionary keys correspond to the different channel types; valid
-    keys are: ``'grad'``, ``'mag'``, ``'eeg'``, ``'eog'``, and ``'ecg'``.
+    **keys** can be any channel type present in the object.
 
     Example::
 
@@ -2230,8 +2353,8 @@ reject : dict | str | None
 """
 flat_common = """
     Reject epochs based on **minimum** peak-to-peak signal amplitude (PTP).
-    Valid **keys** are ``'grad'``, ``'mag'``, ``'eeg'``, ``'eog'``, ``'ecg'``.
-    The **values** are floats that set the minimum acceptable PTP. If the PTP
+    Valid **keys** can be any channel type present in the object. The
+    **values** are floats that set the minimum acceptable PTP. If the PTP
     is smaller than this threshold, the epoch will be dropped. If ``None``
     then no rejection is performed based on flatness of the signal."""
 docdict['flat'] = f"""
@@ -2329,13 +2452,13 @@ docdict['compute_proj_eog'] = f"""%(create_eog_epochs)s {compute_proj_common}
 """ % docdict
 
 # BEM
-docdict['on_defects'] = """
-on_defects : str
-    What to do if the surface is found to have topological defects. Can be
-    ``'raise'`` (default) to raise an error, or ``'warn'`` to emit a warning.
+docdict['on_defects'] = f"""
+on_defects : 'raise' | 'warn' | 'ignore'
+    What to do if the surface is found to have topological defects.
+    {_on_missing_base} one or more defects are found.
     Note that a lot of computations in MNE-Python assume the surfaces to be
     topologically correct, topological defects may still make other
-    computations (e.g., ``mne.make_bem_model`` and ``mne.make_bem_solution``)
+    computations (e.g., `mne.make_bem_model` and `mne.make_bem_solution`)
     fail irrespective of this parameter.
 """
 
@@ -2379,6 +2502,80 @@ ref_channels : str | list of str
     and its data is set to 0. This is useful for later re-referencing.
 """
 
+# Morphing
+docdict['reg_affine'] = """
+reg_affine : ndarray of float, shape (4, 4)
+    The affine that registers one volume to another.
+"""
+docdict['sdr_morph'] = """
+sdr_morph : instance of dipy.align.DiffeomorphicMap
+    The class that applies the the symmetric diffeomorphic registration
+    (SDR) morph.
+"""
+docdict['moving'] = """
+moving : instance of SpatialImage
+    The image to morph ("from" volume).
+"""
+docdict['static'] = """
+static : instance of SpatialImage
+    The image to align with ("to" volume).
+"""
+docdict['niter'] = """
+niter : dict | tuple | None
+    For each phase of the volume registration, ``niter`` is the number of
+    iterations per successive stage of optimization. If a tuple is
+    provided, it will be used for all steps (except center of mass, which does
+    not iterate). It should have length 3 to
+    correspond to ``sigmas=[3.0, 1.0, 0.0]`` and ``factors=[4, 2, 1]`` in
+    the pipeline (see :func:`dipy.align.affine_registration
+    <dipy.align._public.affine_registration>` for details).
+    If a dictionary is provided, number of iterations can be set for each
+    step as a key. Steps not in the dictionary will use the default value.
+    The default (None) is equivalent to:
+
+        niter=dict(translation=(100, 100, 10),
+                   rigid=(100, 100, 10),
+                   affine=(100, 100, 10),
+                   sdr=(5, 5, 3))
+"""
+docdict['pipeline'] = """
+pipeline : str | tuple
+    The volume registration steps to perform (a ``str`` for a single step,
+    or ``tuple`` for a set of sequential steps). The following steps can be
+    performed, and do so by matching mutual information between the images
+    (unless otherwise noted):
+
+    ``'translation'``
+        Translation.
+
+    ``'rigid'``
+        Rigid-body, i.e., rotation and translation.
+
+    ``'affine'``
+        A full affine transformation, which includes translation, rotation,
+        scaling, and shear.
+
+    ``'sdr'``
+        Symmetric diffeomorphic registration :footcite:`AvantsEtAl2008`, a
+        non-linear similarity-matching algorithm.
+
+    The following string shortcuts can also be used:
+
+    ``'all'`` (default)
+        All steps will be performed above in the order above, i.e.,
+        ``('translation', 'rigid', 'affine', 'sdr')``.
+
+    ``'rigids'``
+        The rigid steps (first two) will be performed, which registers
+        the volume without distorting its underlying structure, i.e.,
+        ``('translation', 'rigid')``. This is useful for
+        example when registering images from the same subject, such as
+        CT and MR images.
+
+    ``'affines'``
+        The affine steps (first three) will be performed, i.e., omitting
+        the SDR step.
+"""
 docdict_indented = {}
 
 

@@ -21,12 +21,13 @@ import numpy as np
 
 from ..defaults import DEFAULTS
 from ..fixes import _crop_colorbar, _get_img_fdata, _get_args
+from .._freesurfer import _read_mri_info, _check_mri, _get_head_surface
 from ..io import _loc_to_coil_trans
 from ..io.pick import pick_types, _picks_to_idx
 from ..io.constants import FIFF
 from ..io.meas_info import read_fiducials, create_info
 from ..source_space import (_ensure_src, _create_surf_spacing, _check_spacing,
-                            _read_mri_info, SourceSpaces, read_freesurfer_lut)
+                            SourceSpaces, read_freesurfer_lut)
 
 from ..surface import (get_meg_helmet_surf, _read_mri_surface, _DistanceQuery,
                        transform_surface_to, _project_onto_surface,
@@ -40,9 +41,7 @@ from ..utils import (get_subjects_dir, logger, _check_subject, verbose, warn,
                      _ensure_int, _validate_type, _check_option)
 from .utils import (mne_analyze_colormap, _get_color_list,
                     plt_show, tight_layout, figure_nobar, _check_time_unit)
-from .misc import _check_mri
-from ..bem import (ConductorModel, _bem_find_surface,
-                   read_bem_surfaces, _ensure_bem_surfaces)
+from ..bem import ConductorModel, _bem_find_surface, _ensure_bem_surfaces
 
 
 verbose_dec = verbose
@@ -77,6 +76,7 @@ def _fiducial_coords(points, coord_frame=None):
         return np.array([])
 
 
+@fill_doc
 def plot_head_positions(pos, mode='traces', cmap='viridis', direction='z',
                         show=True, destination=None, info=None, color='k',
                         axes=None):
@@ -103,10 +103,8 @@ def plot_head_positions(pos, mode='traces', cmap='viridis', direction='z',
         details.
 
         .. versionadded:: 0.16
-    info : instance of mne.Info | None
-        Measurement information. If provided, will be used to show the
-        destination position when ``destination is None``, and for
-        showing the MEG sensors.
+    %(info)s If provided, will be used to show the destination position when
+        ``destination is None``, and for showing the MEG sensors.
 
         .. versionadded:: 0.16
     color : color object
@@ -427,9 +425,7 @@ def plot_alignment(info=None, trans=None, subject=None, subjects_dir=None,
 
     Parameters
     ----------
-    info : dict | None
-        The measurement info.
-        If None (default), no sensor information will be shown.
+    %(info)s If None (default), no sensor information will be shown.
     %(trans)s
     subject : str | None
         The subject name corresponding to FreeSurfer environment
@@ -684,63 +680,15 @@ def plot_alignment(info=None, trans=None, subject=None, subjects_dir=None,
     surfs = dict()
 
     # Head:
-    head = False
-    for s in surfaces:
-        if s in ('auto', 'head', 'outer_skin', 'head-dense', 'seghead'):
-            if head:
-                raise ValueError('Can only supply one head-like surface name')
-            surfaces.pop(surfaces.index(s))
-            head = True
-            head_surf = None
-            # Try the BEM if applicable
-            if s in ('auto', 'head', 'outer_skin'):
-                if bem is not None:
-                    head_missing = (
-                        'Could not find the surface for '
-                        'head in the provided BEM model, '
-                        'looking in the subject directory.')
-                    try:
-                        head_surf = _bem_find_surface(bem, 'head')
-                    except RuntimeError:
-                        logger.info(head_missing)
-            if head_surf is None:
-                if subject is None:
-                    if s == 'auto':
-                        # ignore
-                        continue
-                    raise ValueError('To plot the head surface, the BEM/sphere'
-                                     ' model must contain a head surface '
-                                     'or "subject" must be provided (got '
-                                     'None)')
-                subject_dir = op.join(
-                    get_subjects_dir(subjects_dir, raise_error=True), subject)
-                if s in ('head-dense', 'seghead'):
-                    try_fnames = [
-                        op.join(subject_dir, 'bem', '%s-head-dense.fif'
-                                % subject),
-                        op.join(subject_dir, 'surf', 'lh.seghead'),
-                    ]
-                else:
-                    try_fnames = [
-                        op.join(subject_dir, 'bem', 'outer_skin.surf'),
-                        op.join(subject_dir, 'bem', 'flash',
-                                'outer_skin.surf'),
-                        op.join(subject_dir, 'bem', '%s-head.fif'
-                                % subject),
-                    ]
-                for fname in try_fnames:
-                    if op.exists(fname):
-                        logger.info('Using %s for head surface.'
-                                    % (op.basename(fname),))
-                        if op.splitext(fname)[-1] == '.fif':
-                            head_surf = read_bem_surfaces(fname)[0]
-                        else:
-                            head_surf = _read_mri_surface(fname)
-                        break
-                else:
-                    raise IOError('No head surface found for subject '
-                                  '%s after trying:\n%s'
-                                  % (subject, '\n'.join(try_fnames)))
+    heads = [s for s in surfaces if s in
+             ('auto', 'head', 'outer_skin', 'head-dense', 'seghead')]
+    if len(heads) > 1:
+        raise ValueError('Can only supply one head-like surface name, '
+                         f'got {heads}')
+    elif heads:
+        surfaces.pop(surfaces.index(heads[0]))
+        head_surf = _get_head_surface(heads[0], subject, subjects_dir, bem=bem)
+        if head_surf is not None:
             surfs['head'] = head_surf
 
     # Skull:
@@ -1576,8 +1524,8 @@ def link_brains(brains, time=True, camera=False, colorbar=True,
         If True, link the vertices picked with the mouse. Defaults to False.
     """
     from .backends.renderer import _get_3d_backend
-    if _get_3d_backend() != 'pyvista':
-        raise NotImplementedError("Expected 3d backend is pyvista but"
+    if _get_3d_backend() != 'pyvistaqt':
+        raise NotImplementedError("Expected 3d backend is pyvistaqt but"
                                   " {} was given.".format(_get_3d_backend()))
     from ._brain import Brain, _LinkViewer
     if not isinstance(brains, Iterable):
@@ -1710,9 +1658,9 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
     time_unit : 's' | 'ms'
         Whether time is represented in seconds ("s", default) or
         milliseconds ("ms").
-    backend : 'auto' | 'mayavi' | 'pyvista' | 'matplotlib'
+    backend : 'auto' | 'mayavi' | 'pyvistaqt' | 'matplotlib'
         Which backend to use. If ``'auto'`` (default), tries to plot with
-        pyvista, but resorts to matplotlib if no 3d backend is available.
+        pyvistaqt, but resorts to matplotlib if no 3d backend is available.
 
         .. versionadded:: 0.15.0
     spacing : str
@@ -1758,7 +1706,7 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
                                     raise_error=True)
     subject = _check_subject(stc.subject, subject)
     _check_option('backend', backend,
-                  ['auto', 'matplotlib', 'mayavi', 'pyvista', 'notebook'])
+                  ['auto', 'matplotlib', 'mayavi', 'pyvistaqt', 'notebook'])
     plot_mpl = backend == 'matplotlib'
     if not plot_mpl:
         if backend == 'auto':
@@ -1851,7 +1799,7 @@ def _plot_stc(stc, subject, surface, hemi, colormap, time_label,
     }
     if brain_kwargs is not None:
         kwargs.update(brain_kwargs)
-    if backend in ['pyvista', 'notebook']:
+    if backend in ['pyvistaqt', 'notebook']:
         kwargs["show"] = False
         kwargs["view_layout"] = view_layout
     else:
@@ -2450,14 +2398,14 @@ def _check_views(surf, views, hemi, stc=None, backend=None):
             _validate_type(stc, SourceEstimate, 'stc',
                            'SourceEstimate when a flatmap is used')
         if backend is not None:
-            if backend not in ('pyvista', 'notebook'):
+            if backend not in ('pyvistaqt', 'notebook'):
                 raise RuntimeError('The PyVista 3D backend must be used to '
                                    'plot a flatmap')
     if (views == ['flat']) ^ (surf == 'flat'):  # exactly only one of the two
         raise ValueError('surface="flat" must be used with views="flat", got '
                          f'surface={repr(surf)} and views={repr(views)}')
-    _check_option('hemi', hemi, ('split', 'both', 'lh', 'rh', 'vol'))
-    use_hemi = 'lh' if hemi == 'split' else hemi
+    _check_option('hemi', hemi, ('split', 'both', 'lh', 'rh', 'vol', None))
+    use_hemi = 'lh' if hemi == 'split' or hemi is None else hemi
     for vi, v in enumerate(views):
         _check_option(f'views[{vi}]', v, sorted(views_dicts[use_hemi]))
     return views
@@ -2955,8 +2903,7 @@ def plot_sensors_connectivity(info, con, picks=None,
 
     Parameters
     ----------
-    info : dict | None
-        The measurement info.
+    %(info_not_none)s
     con : array, shape (n_channels, n_channels)
         The computed connectivity measure(s).
     %(picks_good_data)s

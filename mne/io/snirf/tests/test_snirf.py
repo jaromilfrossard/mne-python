@@ -3,7 +3,7 @@
 #          simplified BSD-3 license
 
 import os.path as op
-from numpy.testing import assert_allclose, assert_almost_equal
+from numpy.testing import assert_allclose, assert_almost_equal, assert_equal
 import shutil
 import pytest
 
@@ -278,6 +278,9 @@ def test_snirf_nirsport2_w_positions():
     assert_allclose(
         mni_locs[34], [0.0828, -0.046, 0.0285], atol=allowed_dist_error)
 
+    mon = raw.get_montage()
+    assert len(mon.dig) == 43
+
 
 @requires_testing_data
 @requires_h5py
@@ -285,3 +288,12 @@ def test_snirf_standard():
     """Test standard operations."""
     _test_raw_reader(read_raw_snirf, fname=sfnirs_homer_103_wShort,
                      boundary_decimal=0)  # low fs
+
+
+@requires_testing_data
+@requires_h5py
+def test_annotation_description_from_stim_groups():
+    """Test annotation descriptions parsed from stim group names."""
+    raw = read_raw_snirf(nirx_nirsport2_103_2, preload=True)
+    expected_descriptions = ['1', '2', '6']
+    assert_equal(expected_descriptions, raw.annotations.description)

@@ -3,7 +3,7 @@
 #         Andrew Dykstra <andrew.r.dykstra@gmail.com>
 #         Mads Jensen <mje.mads@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from copy import deepcopy
 import os.path as op
@@ -28,6 +28,45 @@ fname = op.join(base_dir, 'test-ave.fif')
 fname_gz = op.join(base_dir, 'test-ave.fif.gz')
 raw_fname = op.join(base_dir, 'test_raw.fif')
 event_name = op.join(base_dir, 'test-eve.fif')
+
+
+def test_get_data():
+    """Test the get_data method for Evoked."""
+    evoked = read_evokeds(fname, 0)
+    d1 = evoked.get_data()
+    d2 = evoked.data
+    assert_array_equal(d1, d2)
+
+    eeg_idxs = np.array([i == "eeg" for i in evoked.get_channel_types()])
+    assert_array_equal(
+        evoked.data[eeg_idxs],
+        evoked.get_data(picks="eeg")
+    )
+
+    # Get a specific time window using tmin and tmax
+    d3 = evoked.get_data(tmin=0)
+    assert np.all(d3.shape[1] ==
+                  evoked.data.shape[1] -
+                  np.nonzero(evoked.times == 0)[0])
+
+    assert evoked.get_data(tmin=0, tmax=0).size == 0
+
+    with pytest.raises(TypeError, match='tmin .* float, None'):
+        evoked.get_data(tmin=[1], tmax=1)
+
+    with pytest.raises(TypeError, match='tmax .* float, None'):
+        evoked.get_data(tmin=1, tmax=np.ones(5))
+
+    # Test units
+    # more tests in mne/io/tests/test_raw.py::test_get_data_units
+    # EEG is already in V, so no conversion should take place
+    d1 = evoked.get_data(picks="eeg", units=None)
+    d2 = evoked.get_data(picks="eeg", units="V")
+    assert_array_equal(d1, d2)
+
+    # Convert to µV
+    d3 = evoked.get_data(picks="eeg", units="µV")
+    assert_array_equal(d1 * 1e6, d3)
 
 
 def test_decim():

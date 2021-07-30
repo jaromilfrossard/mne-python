@@ -27,7 +27,9 @@ significant ERDS values (corrected for multiple comparisons within channels).
 # Authors: Clemens Brunner <clemens.brunner@gmail.com>
 #          Felix Klotzsche <klotzsche@cbs.mpg.de>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
+
+# %%
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -53,7 +55,8 @@ raw.rename_channels(lambda x: x.strip('.'))  # remove dots from channel names
 
 events, _ = mne.events_from_annotations(raw, event_id=dict(T1=2, T2=3))
 
-picks = mne.pick_channels(raw.info["ch_names"], ["C3", "Cz", "C4"])
+want_chs = ['C3', 'Cz', 'C4']
+picks = mne.pick_channels(raw.info["ch_names"], want_chs)
 
 # epoch data ##################################################################
 tmin, tmax = -1, 4  # define epochs around events (in s)
@@ -110,7 +113,7 @@ for event in event_ids:
     fig.suptitle("ERDS ({})".format(event))
     fig.show()
 
-###############################################################################
+# %%
 # Similar to `~mne.Epochs` objects, we can also export data from
 # `~mne.time_frequency.EpochsTFR` and `~mne.time_frequency.AverageTFR` objects
 # to a :class:`Pandas DataFrame <pandas.DataFrame>`. By default, the `time`
@@ -121,7 +124,7 @@ for event in event_ids:
 df = tfr.to_data_frame(time_format=None)
 df.head()
 
-###############################################################################
+# %%
 # This allows us to use additional plotting functions like
 # :func:`seaborn.lineplot` to plot confidence bands:
 
@@ -143,8 +146,7 @@ df = df[df.band.isin(freq_bands_of_interest)]
 df['band'] = df['band'].cat.remove_unused_categories()
 
 # Order channels for plotting:
-df['channel'].cat.reorder_categories(['C3', 'Cz', 'C4'], ordered=True,
-                                     inplace=True)
+df['channel'] = df['channel'].cat.reorder_categories(want_chs, ordered=True)
 
 g = sns.FacetGrid(df, row='band', col='channel', margin_titles=True)
 g.map(sns.lineplot, 'time', 'value', 'condition', n_boot=10)
@@ -157,7 +159,7 @@ g.set_titles(col_template="{col_name}", row_template="{row_name}")
 g.add_legend(ncol=2, loc='lower center')
 g.fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.08)
 
-###############################################################################
+# %%
 # Having the data as a DataFrame also facilitates subsetting,
 # grouping, and other transforms.
 # Here, we use seaborn to plot the average ERDS in the motor imagery interval
@@ -181,7 +183,7 @@ g.set_axis_labels("", "ERDS (%)")
 g.set_titles(col_template="{col_name}", row_template="{row_name}")
 g.fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.3)
 
-###############################################################################
+# %%
 # References
 # ==========
 # .. footbibliography::

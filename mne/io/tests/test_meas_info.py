@@ -2,7 +2,7 @@
 # # Authors: MNE Developers
 #            Stefan Appelhoff <stefan.appelhoff@mailbox.org>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 import hashlib
 import os.path as op
@@ -697,8 +697,9 @@ def test_anonymize(tmpdir):
     assert raw.annotations.orig_time == _stamp_to_dt(stamp)
 
     raw.info['meas_date'] = None
+    raw.anonymize(daysback=None)
     with pytest.warns(RuntimeWarning, match='None'):
-        raw.anonymize()
+        raw.anonymize(daysback=123)
     assert raw.annotations.orig_time is None
     assert raw.first_samp == first_samp
     assert_allclose(raw.annotations.onset, expected_onset)

@@ -26,6 +26,7 @@ import warnings
 from datetime import datetime
 
 from ..defaults import _handle_default
+from ..fixes import _get_args
 from ..io import show_fiff, Info
 from ..io.constants import FIFF
 from ..io.pick import (channel_type, channel_indices_by_type, pick_channels,
@@ -37,7 +38,8 @@ from ..io.meas_info import create_info
 from ..rank import compute_rank
 from ..io.proj import setup_proj
 from ..utils import (verbose, get_config, warn, _check_ch_locs, _check_option,
-                     logger, fill_doc, _pl, _check_sphere, _ensure_int)
+                     logger, fill_doc, _pl, _check_sphere, _ensure_int,
+                     _validate_type)
 from ..transforms import apply_trans
 
 
@@ -132,6 +134,7 @@ def tight_layout(pad=1.2, h_pad=None, w_pad=None, fig=None):
     This will not force constrained_layout=False if the figure was created
     with that method.
     """
+    _validate_type(pad, 'numeric', 'pad')
     import matplotlib.pyplot as plt
     fig = plt.gcf() if fig is None else fig
 
@@ -812,8 +815,7 @@ def plot_sensors(info, kind='topomap', ch_type=None, title=None,
 
     Parameters
     ----------
-    info : instance of Info
-        Info structure containing the channel locations.
+    %(info_not_none)s
     kind : str
         Whether to plot the sensors as 3d, topomap or as an interactive
         sensor selection dialog. Available options 'topomap', '3d', 'select'.
@@ -1240,15 +1242,15 @@ class DraggableColorbar(object):
 
     def connect(self):
         """Connect to all the events we need."""
-        self.cidpress = self.cbar.patch.figure.canvas.mpl_connect(
+        self.cidpress = self.cbar.ax.figure.canvas.mpl_connect(
             'button_press_event', self.on_press)
-        self.cidrelease = self.cbar.patch.figure.canvas.mpl_connect(
+        self.cidrelease = self.cbar.ax.figure.canvas.mpl_connect(
             'button_release_event', self.on_release)
-        self.cidmotion = self.cbar.patch.figure.canvas.mpl_connect(
+        self.cidmotion = self.cbar.ax.figure.canvas.mpl_connect(
             'motion_notify_event', self.on_motion)
-        self.keypress = self.cbar.patch.figure.canvas.mpl_connect(
+        self.keypress = self.cbar.ax.figure.canvas.mpl_connect(
             'key_press_event', self.key_press)
-        self.scroll = self.cbar.patch.figure.canvas.mpl_connect(
+        self.scroll = self.cbar.ax.figure.canvas.mpl_connect(
             'scroll_event', self.on_scroll)
 
     def on_press(self, event):
@@ -1325,10 +1327,12 @@ class DraggableColorbar(object):
         self._update()
 
     def _update(self):
-        self.cbar.set_ticks(None, update_ticks=True)  # use default
+        from matplotlib.ticker import AutoLocator
+        self.cbar.set_ticks(AutoLocator())
+        self.cbar.update_ticks()
         self.cbar.draw_all()
         self.mappable.set_norm(self.cbar.norm)
-        self.cbar.patch.figure.canvas.draw()
+        self.cbar.ax.figure.canvas.draw()
 
 
 class SelectFromCollection(object):
@@ -1389,8 +1393,8 @@ class SelectFromCollection(object):
         self.ec[:, -1] = self.alpha_other
         self.lw = np.full(self.Npts, self.linewidth_other)
 
-        self.lasso = LassoSelector(ax, onselect=self.on_select,
-                                   lineprops=dict(color='red', linewidth=0.5))
+        line_kw = _prop_kw('line', dict(color='red', linewidth=0.5))
+        self.lasso = LassoSelector(ax, onselect=self.on_select, **line_kw)
         self.selection = list()
 
     def on_select(self, verts):
@@ -2303,7 +2307,8 @@ def _save_ndarray_img(fname, img):
     Image.fromarray(img).save(fname)
 
 
-def concatenate_images(images, axis=0, bgcolor='black', centered=True):
+def concatenate_images(images, axis=0, bgcolor='black', centered=True,
+                       n_channels=3):
     """Concatenate a list of images.
 
     Parameters
@@ -2319,6 +2324,8 @@ def concatenate_images(images, axis=0, bgcolor='black', centered=True):
         'black'.
     centered : bool
         If True, the images are centered. Defaults to True.
+    n_channels : int
+        Number of color channels. Can be 3 or 4. The default value is 3.
 
     Returns
     -------
@@ -2327,14 +2334,15 @@ def concatenate_images(images, axis=0, bgcolor='black', centered=True):
     """
     from matplotlib.colors import colorConverter
     if isinstance(bgcolor, str):
-        bgcolor = colorConverter.to_rgb(bgcolor)
+        func_name = 'to_rgb' if n_channels == 3 else 'to_rgba'
+        bgcolor = getattr(colorConverter, func_name)(bgcolor)
     bgcolor = np.asarray(bgcolor) * 255
     funcs = [np.sum, np.max]
     ret_shape = np.asarray([
         funcs[axis]([image.shape[0] for image in images]),
         funcs[1 - axis]([image.shape[1] for image in images]),
     ])
-    ret = np.zeros((ret_shape[0], ret_shape[1], 3), dtype=np.uint8)
+    ret = np.zeros((ret_shape[0], ret_shape[1], n_channels), dtype=np.uint8)
     ret[:, :, :] = bgcolor
     ptr = np.array([0, 0])
     sec = np.array([0 == axis, 1 == axis]).astype(int)
@@ -2351,3 +2359,11 @@ def _generate_default_filename(ext=".png"):
     now = datetime.now()
     dt_string = now.strftime("_%Y-%m-%d_%H-%M-%S")
     return "MNE" + dt_string + ext
+
+
+def _prop_kw(kind, val):
+    # Can be removed in when we depend on matplotlib 3.4.3+
+    # https://github.com/matplotlib/matplotlib/pull/20585
+    from matplotlib.widgets import SpanSelector
+    pre = '' if 'props' in _get_args(SpanSelector) else kind
+    return {pre + 'props': val}

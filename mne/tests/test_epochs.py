@@ -3,7 +3,7 @@
 #         Denis Engemann <denis.engemann@gmail.com>
 #         Stefan Appelhoff <stefan.appelhoff@mailbox.org>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from copy import deepcopy
 from distutils.version import LooseVersion
@@ -181,6 +181,55 @@ def _get_data(preload=False):
 
 reject = dict(grad=1000e-12, mag=4e-12, eeg=80e-6, eog=150e-6)
 flat = dict(grad=1e-15, mag=1e-15)
+
+
+def test_get_data():
+    """Test the .get_data() method."""
+    raw, events, picks = _get_data()
+    event_id = {'a/1': 1, 'a/2': 2, 'b/1': 3, 'b/2': 4}
+    epochs = Epochs(raw, events, event_id, preload=True)
+
+    # Testing with respect to units param
+    # more tests in mne/io/tests/test_raw.py::test_get_data_units
+    # EEG is already in V, so no conversion should take place
+    d1 = epochs.get_data(picks="eeg", units=None)
+    d2 = epochs.get_data(picks="eeg", units="V")
+    assert_array_equal(d1, d2)
+
+    with pytest.raises(ValueError, match="is not a valid unit for eeg"):
+        epochs.get_data(picks="eeg", units="")
+
+    with pytest.raises(ValueError, match="cannot be str if there is more"):
+        epochs.get_data(picks=["eeg", "meg"], units="V")
+
+    # Check combination of units with item param, scale only one ch_type
+    d3 = epochs.get_data(item=[1, 2, 3], units={"grad": "fT/cm"})
+    assert d3.shape[0] == 3
+
+    grad_idxs = np.array([i == "grad" for i in epochs.get_channel_types()])
+    eeg_idxs = np.array([i == "eeg" for i in epochs.get_channel_types()])
+    assert_array_equal(
+        d3[:, grad_idxs, :],
+        epochs.get_data("grad", item=[1, 2, 3]) * 1e13  # T/m to fT/cm
+    )
+    assert_array_equal(
+        d3[:, eeg_idxs, :],
+        epochs.get_data("eeg", item=[1, 2, 3])
+    )
+
+    # Test tmin/tmax
+    data = epochs.get_data(tmin=0)
+    assert np.all(data.shape[-1] ==
+                  epochs._data.shape[-1] -
+                  np.nonzero(epochs.times == 0)[0])
+
+    assert epochs.get_data(tmin=0, tmax=0).size == 0
+
+    with pytest.raises(TypeError, match='tmin .* float, None'):
+        epochs.get_data(tmin=[1], tmax=1)
+
+    with pytest.raises(TypeError, match='tmax .* float, None'):
+        epochs.get_data(tmin=1, tmax=np.ones(5))
 
 
 def test_hierarchical():
@@ -1459,6 +1508,33 @@ def test_reject_epochs(tmpdir):
     epochs.save(temp_fname, overwrite=True)
     read_epochs(temp_fname)
 
+    # Ensure repeated rejection works, even if applied to only a subset of the
+    # previously-used channel types
+    epochs = Epochs(raw, events1, event_id, tmin, tmax,
+                    reject=reject, flat=flat)
+
+    new_reject = reject.copy()
+    new_flat = flat.copy()
+    del new_reject['grad'], new_reject['eeg'], new_reject['eog']
+    del new_flat['mag']
+
+    # No changes expected
+    epochs_cleaned = epochs.copy().drop_bad(reject=new_reject, flat=new_flat)
+    assert epochs_cleaned.reject == epochs.reject
+    assert epochs_cleaned.flat == epochs.flat
+
+    new_reject['mag'] /= 2
+    new_flat['grad'] *= 2
+    # Only the newly-provided thresholds should be updated, the existing ones
+    # should be kept
+    epochs_cleaned = epochs.copy().drop_bad(reject=new_reject, flat=new_flat)
+    assert epochs_cleaned.reject == dict(mag=new_reject['mag'],
+                                         grad=reject['grad'],
+                                         eeg=reject['eeg'],
+                                         eog=reject['eog'])
+    assert epochs_cleaned.flat == dict(grad=new_flat['grad'],
+                                       mag=flat['mag'])
+
 
 def test_preload_epochs():
     """Test preload of epochs."""
@@ -2672,6 +2748,11 @@ def test_concatenate_epochs():
     epochs2.event_id = dict(a=2)
     with pytest.raises(ValueError, match='identical keys'):
         concatenate_epochs([epochs1, epochs2])
+
+    # check concatenating epochs where one of the objects is empty
+    epochs2 = epochs.copy()[:0]
+    with pytest.warns(RuntimeWarning, match='was empty'):
+        concatenate_epochs([epochs, epochs2])
 
 
 def test_concatenate_epochs_large():

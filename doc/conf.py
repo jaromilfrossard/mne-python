@@ -14,6 +14,7 @@ import warnings
 from datetime import datetime, timezone
 from distutils.version import LooseVersion
 
+import numpy as np
 import matplotlib
 import sphinx
 import sphinx_gallery
@@ -125,6 +126,9 @@ pygments_style = 'default'
 # A list of ignored prefixes for module index sorting.
 modindex_common_prefix = ['mne.']
 
+# -- Sphinx-Copybutton configuration -----------------------------------------
+copybutton_prompt_text = r">>> |\.\.\. |\$ "
+copybutton_prompt_is_regexp = True
 
 # -- Intersphinx configuration -----------------------------------------------
 
@@ -140,6 +144,7 @@ intersphinx_mapping = {
     'nibabel': ('https://nipy.org/nibabel', None),
     'nilearn': ('http://nilearn.github.io', None),
     'surfer': ('https://pysurfer.github.io/', None),
+    'mne_bids': ('https://mne.tools/mne-bids/stable', None),
     'pandas': ('https://pandas.pydata.org/pandas-docs/stable', None),
     'seaborn': ('https://seaborn.pydata.org/', None),
     'statsmodels': ('https://www.statsmodels.org/dev', None),
@@ -149,7 +154,9 @@ intersphinx_mapping = {
     'mne_realtime': ('https://mne.tools/mne-realtime', None),
     'picard': ('https://pierreablin.github.io/picard/', None),
     'qdarkstyle': ('https://qdarkstylesheet.readthedocs.io/en/latest', None),
-    'eeglabio': ('https://eeglabio.readthedocs.io/en/latest', None)
+    'eeglabio': ('https://eeglabio.readthedocs.io/en/latest', None),
+    'dipy': ('https://dipy.org/documentation/1.4.0./',
+             'https://dipy.org/documentation/1.4.0./objects.inv/'),
 }
 
 
@@ -218,6 +225,9 @@ numpydoc_xref_aliases = {
     'EMS': 'mne.decoding.EMS', 'CSP': 'mne.decoding.CSP',
     'Beamformer': 'mne.beamformer.Beamformer',
     'Transform': 'mne.transforms.Transform',
+    # dipy
+    'dipy.align.AffineMap': 'dipy.align.imaffine.AffineMap',
+    'dipy.align.DiffeomorphicMap': 'dipy.align.imwarp.DiffeomorphicMap',
 }
 numpydoc_xref_ignore = {
     # words
@@ -247,10 +257,6 @@ numpydoc_xref_ignore = {
     # unlinkable
     'mayavi.mlab.pipeline.surface',
     'CoregFrame', 'Kit2FiffFrame', 'FiducialsFrame',
-    # dipy has resolution problems, wait for them to be solved, e.g.
-    # https://github.com/dipy/dipy/issues/2290
-    'dipy.align.AffineMap',
-    'dipy.align.DiffeomorphicMap',
 }
 numpydoc_validate = True
 numpydoc_validation_checks = {'all'} | set(error_ignores)
@@ -340,7 +346,7 @@ else:
         mlab.close()
         scrapers += ('mayavi',)
         push_exception_handler(reraise_exceptions=True)
-    elif backend in ('notebook', 'pyvista'):
+    elif backend in ('notebook', 'pyvistaqt'):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             import pyvista
@@ -757,6 +763,8 @@ latex_logo = "_static/logo.png"
 # not chapters.
 latex_toplevel_sectioning = 'part'
 
+_np_print_defaults = np.get_printoptions()
+
 
 # -- Warnings management -----------------------------------------------------
 
@@ -808,6 +816,7 @@ def reset_warnings(gallery_conf, fname):
                 'is a deprecated alias for the builtin',  # NumPy
                 'the old name will be removed',  # Jinja, via sphinx
                 'rcParams is deprecated',  # PyVista rcParams -> global_theme
+                'to mean no clipping',
                 ):
         warnings.filterwarnings(  # deal with other modules having bad imports
             'ignore', message=".*%s.*" % key, category=DeprecationWarning)
@@ -831,6 +840,10 @@ def reset_warnings(gallery_conf, fname):
         'ignore', message="can't resolve package from", category=ImportWarning)
     warnings.filterwarnings(
         'ignore', message='.*mne-realtime.*', category=DeprecationWarning)
+
+    # In case we use np.set_printoptions in any tutorials, we only
+    # want it to affect those:
+    np.set_printoptions(**_np_print_defaults)
 
 
 reset_warnings(None, None)
@@ -1000,7 +1013,7 @@ custom_redirects = {
 def make_redirects(app, exception):
     """Make HTML redirects."""
     # https://www.sphinx-doc.org/en/master/extdev/appapi.html
-    # Adapted from sphinxcontrib/redirects (BSD 2-clause)
+    # Adapted from sphinxcontrib/redirects (BSD-2-Clause)
     if not isinstance(app.builder, sphinx.builders.html.StandaloneHTMLBuilder):
         return
     logger = sphinx.util.logging.getLogger('mne')

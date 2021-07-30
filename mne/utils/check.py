@@ -2,7 +2,7 @@
 """The check functions."""
 # Authors: Alexandre Gramfort <alexandre.gramfort@inria.fr>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from builtins import input  # no-op here but facilitates testing
 from difflib import get_close_matches
@@ -13,6 +13,7 @@ import os.path as op
 from pathlib import Path
 import sys
 import warnings
+import numbers
 
 import numpy as np
 
@@ -337,7 +338,7 @@ def _check_ch_locs(chs):
 
 
 def _is_numeric(n):
-    return isinstance(n, (np.integer, np.floating, int, float))
+    return isinstance(n, numbers.Number)
 
 
 class _IntLike(object):
@@ -379,8 +380,10 @@ def _validate_type(item, types=None, item_name=None, type_name=None):
         The thing to be checked.
     types : type | str | tuple of types | tuple of str
          The types to be checked against.
-         If str, must be one of {'int', 'str', 'numeric', 'info', 'path-like',
-         'callable'}.
+         If str, must be one of {'int', 'int-like', 'str', 'numeric', 'info',
+         'path-like', 'callable'}.
+         If a tuple of str is passed, use 'int-like' and not 'int' for
+         integers.
     item_name : str | None
         Name of the item to show inside the error message.
     type_name : str | None
@@ -413,7 +416,7 @@ def _validate_type(item, types=None, item_name=None, type_name=None):
                 type_name = ', '.join(type_name)
         _item_name = 'Item' if item_name is None else item_name
         raise TypeError(f"{_item_name} must be an instance of {type_name}, "
-                        f"got {type(item)} instead")
+                        f"got {type(item)} instead.")
 
 
 def _check_path_like(item):

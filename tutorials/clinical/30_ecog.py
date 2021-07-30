@@ -1,5 +1,5 @@
 """
-.. _tut_working_with_ecog:
+.. _tut-working-with-ecog:
 
 ======================
 Working with ECoG data
@@ -17,7 +17,7 @@ This example shows how to use:
 - projection onto a pial surface
 
 For a complementary example that involves sEEG data, channel locations in
-MNI space, or projection into a volume, see :ref:`tut_working_with_seeg`.
+MNI space, or projection into a volume, see :ref:`tut-working-with-seeg`.
 """
 # Authors: Eric Larson <larson.eric.d@gmail.com>
 #          Chris Holdgraf <choldgraf@gmail.com>
@@ -25,7 +25,9 @@ MNI space, or projection into a volume, see :ref:`tut_working_with_seeg`.
 #          Alex Rockhill <aprockhill@mailbox.org>
 #          Liberty Hamilton <libertyhamilton@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
+
+# %%
 
 import os.path as op
 
@@ -45,12 +47,16 @@ sample_path = mne.datasets.sample.data_path()
 subjects_dir = op.join(sample_path, 'subjects')
 
 
-###############################################################################
+# %%
 # Load in data and perform basic preprocessing
 # --------------------------------------------
 #
 # Let's load some ECoG electrode data with `mne-bids
 # <https://mne.tools/mne-bids/>`_.
+#
+# .. note::
+#     Downsampling is just to save execution time in this example, you should
+#     not need to do this in general!
 
 # first define the bids path
 bids_path = BIDSPath(root=bids_root, subject='pt1', session='presurgery',
@@ -85,8 +91,6 @@ epochs = mne.Epochs(raw, events, event_id=event_id['onset'],
                     tmin=13, tmax=13 + epoch_length, baseline=None)
 
 # And then load data and downsample.
-# .. note: This is just to save execution time in this example, you should
-#          not need to do this in general!
 epochs.load_data()
 epochs.resample(200)  # Hz, will also load the data for us
 
@@ -94,7 +98,7 @@ epochs.resample(200)  # Hz, will also load the data for us
 evoked = epochs.average()
 
 
-###############################################################################
+# %%
 # Explore the electrodes on a template brain
 # ------------------------------------------
 #
@@ -111,7 +115,7 @@ mne.viz.set_3d_view(fig, azimuth=az, elevation=el, focalpoint=focalpoint)
 
 xy, im = snapshot_brain_montage(fig, raw.info)
 
-###############################################################################
+# %%
 # Compute frequency features of the data
 # --------------------------------------
 #
@@ -123,7 +127,7 @@ gamma_power_t = evoked.copy().filter(30, 90).apply_hilbert(
     envelope=True).resample(sfreq)
 gamma_info = gamma_power_t.info
 
-###############################################################################
+# %%
 # Visualize the time-evolution of the gamma power on the brain
 # ------------------------------------------------------------
 #
@@ -154,7 +158,7 @@ for i, pos in enumerate(xy_pts):
     color = cmap(i / xy_pts.shape[0])
     ax.plot(x_line + x, gamma_power[i] + y, linewidth=0.5, color=color)
 
-###############################################################################
+# %%
 # We can project gamma power from the sensor data to the nearest locations on
 # the pial surface and visualize that:
 #

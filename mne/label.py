@@ -2,7 +2,7 @@
 #          Martin Luessi <mluessi@nmr.mgh.harvard.edu>
 #          Denis Engemann <denis.engemann@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from collections import defaultdict
 from colorsys import hsv_to_rgb, rgb_to_hsv
@@ -19,13 +19,13 @@ from .source_estimate import (SourceEstimate, VolSourceEstimate,
                               _center_of_mass, extract_label_time_course,
                               spatial_src_adjacency)
 from .source_space import (add_source_space_distances, SourceSpaces,
-                           read_freesurfer_lut, _import_nibabel)
+                           _ensure_src)
 from .stats.cluster_level import _find_clusters, _get_components
-from .surface import read_surface, fast_cross_3d, mesh_edges, mesh_dist
-from .transforms import apply_trans
+from .surface import (complete_surface_info, read_surface, fast_cross_3d,
+                      _mesh_borders, mesh_edges, mesh_dist)
 from .utils import (get_subjects_dir, _check_subject, logger, verbose, warn,
                     check_random_state, _validate_type, fill_doc,
-                    _check_option, check_version)
+                    _check_option, check_version, _check_fname)
 
 
 def _blend_colors(color_1, color_2):
@@ -166,8 +166,7 @@ class Label(object):
         Kept as information but not used by the object itself.
     filename : str
         Kept as information but not used by the object itself.
-    subject : str | None
-        Name of the subject the label is from.
+    %(label_subject)s
     color : None | matplotlib color
         Default label color and alpha (e.g., ``(1., 0., 0., 1.)`` for red).
     %(verbose)s
@@ -186,7 +185,8 @@ class Label(object):
     pos : array, shape (N, 3)
         Locations in meters.
     subject : str | None
-        Subject name. It is best practice to set this to the proper
+        The label subject.
+        It is best practice to set this to the proper
         value on initialization, but it can also be set manually.
     values : array, shape (N,)
         Values at the vertices.
@@ -508,9 +508,7 @@ class Label(object):
 
         Parameters
         ----------
-        subject : str | None
-            The name of the subject used. If None, the value will be
-            taken from self.subject.
+        %(label_subject)s
         smooth : int
             Number of iterations for the smoothing of the surface data.
             Cannot be None here since not all vertices are used. For a
@@ -642,9 +640,7 @@ class Label(object):
             or 'contiguous' to split the label into connected components.
             If a number or 'contiguous' is specified, names of the new labels
             will be the input label's name with div1, div2 etc. appended.
-        subject : None | str
-            Subject which this label belongs to (needed to locate surface file;
-            should only be specified if it is not specified in the label).
+        %(label_subject)s
         %(subjects_dir)s
         freesurfer : bool
             By default (``False``) ``split_label`` uses an algorithm that is
@@ -744,8 +740,7 @@ class Label(object):
 
         Parameters
         ----------
-        subject : str | None
-            The subject the label is defined for.
+        %(label_subject)s
         restrict_vertices : bool | array of int | instance of SourceSpaces
             If True, returned vertex will be one from the label. Otherwise,
             it could be any vertex from surf. If an array of int, the
@@ -792,9 +787,93 @@ class Label(object):
                                  subject, subjects_dir, restrict_vertices)
         return vertex
 
+    @verbose
+    def distances_to_outside(self, subject=None, subjects_dir=None,
+                             surface='white', *, verbose=None):
+        """Compute the distance from each vertex to outside the label.
+
+        Parameters
+        ----------
+        %(label_subject)s
+        %(subjects_dir)s
+        %(surface)s
+        %(verbose_meth)s
+
+        Returns
+        -------
+        dist : ndarray, shape (n_vertices,)
+            The distance from each vertex in ``self.vertices`` to exit the
+            label.
+        outside_vertices : ndarray, shape (n_vertices,)
+            For each vertex in the label, the nearest vertex outside the
+            label.
+
+        Notes
+        -----
+        Distances are computed along the cortical surface.
+
+        .. versionadded:: 0.24
+        """
+        from scipy.sparse.csgraph import dijkstra
+        if not check_version('scipy', '1.3'):
+            raise RuntimeError(
+                'scipy >= 1.3 is required to calculate distances to the edge')
+        rr, tris = self._load_surface(subject, subjects_dir, surface)
+        adjacency = mesh_dist(tris, rr)
+        mask = np.zeros(len(rr))
+        mask[self.vertices] = 1
+        border_vert = _mesh_borders(tris, mask)
+        # vertices on the edge
+        outside_vert = np.setdiff1d(border_vert, self.vertices)
+        dist, _, outside = dijkstra(
+            adjacency, indices=outside_vert, min_only=True,
+            return_predecessors=True)
+        dist = dist[self.vertices] * 1e-3  # mm to m
+        outside = outside[self.vertices]
+        return dist, outside
+
+    @verbose
+    def compute_area(self, subject=None, subjects_dir=None, surface='white',
+                     *, verbose=None):
+        """Compute the surface area of a label.
+
+        Parameters
+        ----------
+        %(label_subject)s
+        %(subjects_dir)s
+        %(surface)s
+        %(verbose_meth)s
+
+        Returns
+        -------
+        area : float
+            The area (in m²) of the label.
+
+        Notes
+        -----
+        ..versionadded:: 0.24
+        """
+        _, _, surf = self._load_surface(subject, subjects_dir, surface,
+                                        return_dict=True)
+        complete_surface_info(
+            surf, do_neighbor_vert=False, do_neighbor_tri=False, copy=False)
+        in_ = np.in1d(surf['tris'], self.vertices).reshape(surf['tris'].shape)
+        tidx = np.where(in_.all(-1))[0]
+        if len(tidx) == 0:
+            warn('No complete triangles found, perhaps label is not filled?')
+        return surf['tri_area'][tidx].sum() * 1e-6  # mm² -> m²
+
+    def _load_surface(self, subject, subjects_dir, surface, **kwargs):
+        subject = _check_subject(self.subject, subject)
+        subjects_dir = get_subjects_dir(subjects_dir, raise_error=True)
+        fname = op.join(
+            subjects_dir, subject, 'surf', f'{self.hemi}.{surface}')
+        _check_fname(fname, overwrite='read', must_exist=True, name='Surface')
+        return read_surface(fname, **kwargs)
+
 
 def _get_label_src(label, src):
-    _validate_type(src, SourceSpaces, 'src')
+    src = _ensure_src(src)
     if src.kind != 'surface':
         raise RuntimeError('Cannot operate on SourceSpaces that are not '
                            'surface type, got %s' % (src.kind,))
@@ -830,7 +909,7 @@ class BiHemiLabel(object):
     name : None | str
         A name for the label. It is OK to change that attribute manually.
     subject : str | None
-        Subject the label is from.
+        The name of the subject.
     """
 
     def __init__(self, lh, rh, name=None, color=None):  # noqa: D102
@@ -902,15 +981,15 @@ class BiHemiLabel(object):
             return BiHemiLabel(lh, rh, name, self.color)
 
 
-def read_label(filename, subject=None, color=None):
+@verbose
+def read_label(filename, subject=None, color=None, *, verbose=None):
     """Read FreeSurfer Label file.
 
     Parameters
     ----------
     filename : str
         Path to label file.
-    subject : str | None
-        Name of the subject the data are defined for.
+    %(label_subject)s
         It is good practice to set this attribute to avoid combining
         incompatible labels and SourceEstimates (e.g., ones from other
         subjects). Note that due to file specification limitations, the
@@ -919,6 +998,7 @@ def read_label(filename, subject=None, color=None):
         Default label color and alpha (e.g., ``(1., 0., 0., 1.)`` for red).
         Note that due to file specification limitations, the color isn't saved
         to or loaded from files written to disk.
+    %(verbose)s
 
     Returns
     -------
@@ -975,7 +1055,7 @@ def read_label(filename, subject=None, color=None):
     values = values[order]
 
     label = Label(vertices, pos, values, hemi, comment, name, filename,
-                  subject, color)
+                  subject, color, verbose=verbose)
 
     return label
 
@@ -1054,9 +1134,7 @@ def _split_label_contig(label_to_split, subject=None, subjects_dir=None):
     ----------
     label_to_split : Label | str
         Label which is to be split (Label object or path to a label file).
-    subject : None | str
-        Subject which this label belongs to (needed to locate surface file;
-        should only be specified if it is not specified in the label).
+    %(label_subject)s
     %(subjects_dir)s
 
     Returns
@@ -1140,9 +1218,7 @@ def split_label(label, parts=2, subject=None, subjects_dir=None,
         posterior to anterior), or the number of new labels to create (default
         is 2). If a number is specified, names of the new labels will be the
         input label's name with div1, div2 etc. appended.
-    subject : None | str
-        Subject which this label belongs to (needed to locate surface file;
-        should only be specified if it is not specified in the label).
+    %(label_subject)s
     %(subjects_dir)s
     freesurfer : bool
         By default (``False``) ``split_label`` uses an algorithm that is
@@ -1527,8 +1603,7 @@ def grow_labels(subject, seeds, extents, hemis, subjects_dir=None, n_jobs=1,
 
     Parameters
     ----------
-    subject : str
-        Name of the subject as in SUBJECTS_DIR.
+    %(subject)s
     seeds : int | list
         Seed, or list of seeds. Each seed can be either a vertex number or
         a list of vertex numbers.
@@ -1547,8 +1622,7 @@ def grow_labels(subject, seeds, extents, hemis, subjects_dir=None, n_jobs=1,
     names : None | list of str
         Assign names to the new labels (list needs to have the same length as
         seeds).
-    surface : str
-        The surface used to grow the labels, defaults to the white surface.
+    %(surface)s
     colors : array, shape (n, 4) or (, 4) | None
         How to assign colors to each label. If None then unique colors will be
         chosen automatically (default), otherwise colors will be broadcast
@@ -1744,8 +1818,7 @@ def random_parcellation(subject, n_parcel, hemi, subjects_dir=None,
 
     Parameters
     ----------
-    subject : str
-        Name of the subject as in SUBJECTS_DIR.
+    %(subject)s
     n_parcel : int
         Total number of cortical parcels.
     hemi : str
@@ -1753,8 +1826,7 @@ def random_parcellation(subject, n_parcel, hemi, subjects_dir=None,
         of 'both', both hemispheres are processed with (n_parcel // 2)
         parcels per hemisphere.
     %(subjects_dir)s
-    surface : str
-        The surface used to grow the labels, defaults to the white surface.
+    %(surface)s
     %(random_state)s
 
     Returns
@@ -2033,8 +2105,7 @@ def read_labels_from_annot(subject, parc='aparc', hemi='both',
 
     Parameters
     ----------
-    subject : str
-        The subject for which to read the parcellation.
+    %(subject)s
     parc : str
         The parcellation to use, e.g., 'aparc' or 'aparc.a2009s'.
     hemi : str
@@ -2220,8 +2291,7 @@ def labels_to_stc(labels, values, tmin=0, tstep=1, subject=None, src=None,
         The tmin to use for the STC.
     tstep : float
         The tstep to use for the STC.
-    subject : str | None
-        The subject for which to create the STC.
+    %(subject)s
     %(eltc_src)s
         Can be omitted if using a surface source space, in which case
         the label vertices will determine the output STC vertices.
@@ -2365,8 +2435,7 @@ def write_labels_to_annot(labels, subject=None, parc=None, overwrite=False,
     ----------
     labels : list with instances of mne.Label
         The labels to create a parcellation from.
-    subject : str | None
-        The subject for which to write the parcellation.
+    %(subject)s
     parc : str | None
         The parcellation name to use.
     overwrite : bool
@@ -2673,54 +2742,3 @@ def select_sources(subject, label, location='center', extent=0.,
                           hemi=new_label.hemi, name=name, subject=subject)
 
     return new_label
-
-
-def find_pos_in_annot(pos, subject='fsaverage', annot='aparc+aseg',
-                      subjects_dir=None):
-    """
-    Find name in atlas for given MRI coordinates.
-
-    Parameters
-    ----------
-    pos : ndarray, shape (3,)
-        Vector of x,y,z coordinates in MRI space.
-    subject : str
-        MRI subject name.
-    annot : str
-        MRI volumetric atlas file name. Do not include the ``.mgz`` suffix.
-    subjects_dir : path-like
-        Path to MRI subjects directory.
-
-    Returns
-    -------
-    label : str
-        Anatomical region name from atlas.
-
-    Notes
-    -----
-    .. versionadded:: 0.24
-    """
-    pos = np.asarray(pos, float)
-    if pos.shape != (3,):
-        raise ValueError(
-            'pos must be an array of shape (3,), ' f'got {pos.shape}')
-
-    nibabel = _import_nibabel('read MRI parcellations')
-    if subjects_dir is None:
-        subjects_dir = get_subjects_dir(None)
-    atlas_fname = os.path.join(subjects_dir, subject, 'mri', annot + '.mgz')
-    parcellation_img = nibabel.load(atlas_fname)
-
-    # Load freesurface atlas LUT
-    lut_inv_dict = read_freesurfer_lut()[0]
-    label_lut = {v: k for k, v in lut_inv_dict.items()}
-
-    # Find voxel for dipole position
-    mri_vox_t = np.linalg.inv(parcellation_img.header.get_vox2ras_tkr())
-    vox_dip_pos_f = apply_trans(mri_vox_t, pos)
-    vox_dip_pos = np.rint(vox_dip_pos_f).astype(int)
-
-    # Get voxel value and label from LUT
-    vol_values = parcellation_img.get_fdata()[tuple(vox_dip_pos.T)]
-    label = label_lut.get(vol_values, 'Unknown')
-    return label

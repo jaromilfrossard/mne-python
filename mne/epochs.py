@@ -9,7 +9,7 @@
 #          Mainak Jas <mainak@neuro.hut.fi>
 #          Stefan Appelhoff <stefan.appelhoff@mailbox.org>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from functools import partial
 from collections import Counter
@@ -36,7 +36,7 @@ from .io.pick import (channel_indices_by_type, channel_type,
                       pick_channels, pick_info, _pick_data_channels,
                       _DATA_CH_TYPES_SPLIT, _picks_to_idx)
 from .io.proj import setup_proj, ProjMixin
-from .io.base import BaseRaw, TimeMixin
+from .io.base import BaseRaw, TimeMixin, _get_ch_factors
 from .bem import _check_origin
 from .evoked import EvokedArray, _check_decim
 from .baseline import rescale, _log_rescale, _check_baseline
@@ -327,8 +327,7 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
 
     Parameters
     ----------
-    info : dict
-        A copy of the `~mne.Info` dictionary from the raw object.
+    %(info_not_none)s
     data : ndarray | None
         If ``None``, data will be read from the Raw object. If ndarray, must be
         of shape (n_epochs, n_channels, n_times).
@@ -744,18 +743,26 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
         bad_msg = ('{kind}["{key}"] == {new} {op} {old} (old value), new '
                    '{kind} values must be at least as stringent as '
                    'previous ones')
-        for key in set(reject.keys()).union(old_reject.keys()):
-            old = old_reject.get(key, np.inf)
-            new = reject.get(key, np.inf)
-            if new > old:
-                raise ValueError(bad_msg.format(kind='reject', key=key,
-                                                new=new, old=old, op='>'))
-        for key in set(flat.keys()).union(old_flat.keys()):
-            old = old_flat.get(key, -np.inf)
-            new = flat.get(key, -np.inf)
-            if new < old:
-                raise ValueError(bad_msg.format(kind='flat', key=key,
-                                                new=new, old=old, op='<'))
+
+        # copy thresholds for channel types that were used previously, but not
+        # passed this time
+        for key in set(old_reject) - set(reject):
+            reject[key] = old_reject[key]
+        # make sure new thresholds are at least as stringent as the old ones
+        for key in reject:
+            if key in old_reject and reject[key] > old_reject[key]:
+                raise ValueError(
+                    bad_msg.format(kind='reject', key=key, new=reject[key],
+                                   old=old_reject[key], op='>'))
+
+        # same for flat thresholds
+        for key in set(old_flat) - set(flat):
+            flat[key] = old_flat[key]
+        for key in flat:
+            if key in old_flat and flat[key] < old_flat[key]:
+                raise ValueError(
+                    bad_msg.format(kind='flat', key=key, new=flat[key],
+                                   old=old_flat[key], op='<'))
 
         # after validation, set parameters
         self._bad_dropped = False
@@ -1119,7 +1126,7 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
                  xscale='linear', area_mode='std', area_alpha=0.33,
                  dB=True, estimate='auto', show=True, n_jobs=1,
                  average=False, line_alpha=None, spatial_colors=True,
-                 sphere=None, verbose=None):
+                 sphere=None, exclude='bads', verbose=None):
         return plot_epochs_psd(self, fmin=fmin, fmax=fmax, tmin=tmin,
                                tmax=tmax, proj=proj, bandwidth=bandwidth,
                                adaptive=adaptive, low_bias=low_bias,
@@ -1129,7 +1136,7 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
                                show=show, n_jobs=n_jobs, average=average,
                                line_alpha=line_alpha,
                                spatial_colors=spatial_colors, sphere=sphere,
-                               verbose=verbose)
+                               exclude=exclude, verbose=verbose)
 
     @copy_function_doc_to_method_doc(plot_epochs_psd_topomap)
     def plot_psd_topomap(self, bands=None, tmin=None,
@@ -1317,7 +1324,8 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
         return epoch
 
     @verbose
-    def _get_data(self, out=True, picks=None, item=None, verbose=None):
+    def _get_data(self, out=True, picks=None, item=None, *, units=None,
+                  tmin=None, tmax=None, verbose=None):
         """Load all data, dropping bad epochs along the way.
 
         Parameters
@@ -1326,8 +1334,17 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
             Return the data. Setting this to False is used to reject bad
             epochs without caching all the data, which saves memory.
         %(picks_all)s
+        item : slice | array-like | str | list | None
+            See docstring of get_data method.
+        %(units)s
+        tmin : int | float | None
+            Start time of data to get in seconds.
+        tmax : int | float | None
+            End time of data to get in seconds.
         %(verbose_meth)s
         """
+        start, stop = self._handle_tmin_tmax(tmin, tmax)
+
         if item is None:
             item = slice(None)
         elif not self._bad_dropped:
@@ -1347,16 +1364,28 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
             logger.info('Loading data for %s events and %s original time '
                         'points ...' % (n_events, len(self._raw_times)))
 
+        orig_picks = picks
+        if orig_picks is None:
+            picks = _picks_to_idx(self.info, picks, "all", exclude=())
+        else:
+            picks = _picks_to_idx(self.info, picks)
+
+        # handle units param only if we are going to return data (out==True)
+        if (units is not None) and out:
+            ch_factors = _get_ch_factors(self, units, picks)
+
         if self._bad_dropped:
             if not out:
                 return
             if self.preload:
                 data = data[select]
-                if picks is None:
-                    return data
-                else:
-                    picks = _picks_to_idx(self.info, picks)
-                    return data[:, picks]
+                if orig_picks is not None:
+                    data = data[:, picks]
+                if units is not None:
+                    data *= ch_factors[:, np.newaxis]
+                if start != 0 or stop != self.times.size:
+                    data = data[..., start:stop]
+                return data
 
             # we need to load from disk, drop, and return data
             detrend_picks = self._detrend_picks
@@ -1435,11 +1464,13 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
                           select_data=False)
 
         if out:
-            if picks is None:
-                return data
-            else:
-                picks = _picks_to_idx(self.info, picks)
-                return data[:, picks]
+            if orig_picks is not None:
+                data = data[:, picks]
+            if units is not None:
+                data *= ch_factors[:, np.newaxis]
+            if start != 0 or stop != self.times.size:
+                data = data[..., start:stop]
+            return data
         else:
             return None
 
@@ -1452,7 +1483,8 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
             return []
 
     @fill_doc
-    def get_data(self, picks=None, item=None):
+    def get_data(self, picks=None, item=None, units=None, tmin=None,
+                 tmax=None):
         """Get all epochs as a 3D array.
 
         Parameters
@@ -1466,13 +1498,25 @@ class BaseEpochs(ProjMixin, ContainsMixin, UpdateChannelsMixin, ShiftTimeMixin,
             None (default) is an alias for ``slice(None)``.
 
             .. versionadded:: 0.20
+        %(units)s
+
+            .. versionadded:: 0.24
+        tmin : int | float | None
+            Start time of data to get in seconds.
+
+            .. versionadded:: 0.24.0
+        tmax : int | float | None
+            End time of data to get in seconds.
+
+            .. versionadded:: 0.24.0
 
         Returns
         -------
         data : array of shape (n_epochs, n_channels, n_times)
             A view on epochs data.
         """
-        return self._get_data(picks=picks, item=item)
+        return self._get_data(picks=picks, item=item, units=units, tmin=tmin,
+                              tmax=tmax)
 
     @verbose
     def apply_function(self, fun, picks=None, dtype=None, n_jobs=1,
@@ -2425,8 +2469,7 @@ class Epochs(BaseEpochs):
 
     Attributes
     ----------
-    info : instance of Info
-        Measurement info.
+    %(info_not_none)s
     event_id : dict
         Names of conditions corresponding to event_ids.
     ch_names : list of string
@@ -2567,9 +2610,8 @@ class EpochsArray(BaseEpochs):
     data : array, shape (n_epochs, n_channels, n_times)
         The channels' time series for each epoch. See notes for proper units of
         measure.
-    info : instance of Info
-        Info dictionary. Consider using ``create_info`` to populate
-        this structure.
+    %(info_not_none)s Consider using :func:`mne.create_info` to populate this
+        structure.
     events : None | array of int, shape (n_events, 3)
         The events typically returned by the read_events function.
         If some events don't match the events of interest as specified
@@ -3260,7 +3302,7 @@ def add_channels_epochs(epochs_list, verbose=None):
         raise ValueError('All epochs must be preloaded.')
 
     info = _merge_info([epochs.info for epochs in epochs_list])
-    data = [epochs.get_data() for epochs in epochs_list]
+    data = [epochs._data for epochs in epochs_list]
     _check_merge_epochs(epochs_list)
     for d in data:
         if len(d) != len(data[0]):
@@ -3296,18 +3338,6 @@ def add_channels_epochs(epochs_list, verbose=None):
     return epochs
 
 
-def _update_offset(offset, events, shift):
-    if offset == 0:
-        return offset
-    offset = 0 if offset is None else offset
-    offset = np.int64(offset) + np.max(events[:, 0]) + shift
-    if offset > INT32_MAX:
-        warn(f'Event number greater than {INT32_MAX} created, events[:, 0] '
-             'will be assigned consecutive increasing integer values')
-        offset = 0
-    return offset
-
-
 def _concatenate_epochs(epochs_list, with_data=True, add_offset=True, *,
                         on_mismatch='raise'):
     """Auxiliary function for concatenating epochs."""
@@ -3333,7 +3363,8 @@ def _concatenate_epochs(epochs_list, with_data=True, add_offset=True, *,
     selection = out.selection
     # offset is the last epoch + tmax + 10 second
     shift = int((10 + tmax) * out.info['sfreq'])
-    events_offset = _update_offset(None, out.events, shift)
+    events_offset = 0
+    events_number_overflow = False
     for ii, epochs in enumerate(epochs_list[1:], 1):
         _ensure_infos_match(epochs.info, info, f'epochs[{ii}]',
                             on_mismatch=on_mismatch)
@@ -3357,11 +3388,19 @@ def _concatenate_epochs(epochs_list, with_data=True, add_offset=True, *,
             epochs.drop_bad()
             offsets.append(len(epochs))
         evs = epochs.events.copy()
-        # add offset
-        if add_offset:
-            evs[:, 0] += events_offset
-        # Update offset for the next iteration.
-        events_offset = _update_offset(events_offset, epochs.events, shift)
+        if len(epochs.events) == 0:
+            warn('One of the Epochs objects to concatenate was empty.')
+        elif add_offset:
+            # We need to cast to a native Python int here to prevent an
+            # overflow of a numpy int32 or int64 type.
+            events_offset += int(np.max(evs[:, 0])) + shift
+            if events_offset > INT32_MAX:
+                warn(f'Event number greater than {INT32_MAX} created, '
+                     'events[:, 0] will be assigned consecutive increasing '
+                     'integer values')
+                events_number_overflow = True
+            else:
+                evs[:, 0] += events_offset
         events.append(evs)
         selection = np.concatenate((selection, epochs.selection))
         drop_log = drop_log + epochs.drop_log
@@ -3369,7 +3408,7 @@ def _concatenate_epochs(epochs_list, with_data=True, add_offset=True, *,
         metadata.append(epochs.metadata)
     events = np.concatenate(events, axis=0)
     # check to see if we exceeded our maximum event offset
-    if events_offset == 0:
+    if events_number_overflow:
         events[:, 0] = np.arange(1, len(events) + 1)
 
     # Create metadata object (or make it None)

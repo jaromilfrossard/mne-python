@@ -2,7 +2,7 @@
 #          Eric Larson <larson.eric.d@gmail.com>
 #          Alexandre Gramfort <alexandre.gramfort@inria.fr>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 import re
 import numpy as np
@@ -22,8 +22,7 @@ def source_detector_distances(info, picks=None):
 
     Parameters
     ----------
-    info : Info
-        The measurement info.
+    %(info_not_none)s
     %(picks_all)s
 
     Returns
@@ -38,6 +37,7 @@ def source_detector_distances(info, picks=None):
     return np.array(dist, float)[picks]
 
 
+@fill_doc
 def short_channels(info, threshold=0.01):
     r"""Determine which NIRS channels are short.
 
@@ -46,8 +46,7 @@ def short_channels(info, threshold=0.01):
 
     Parameters
     ----------
-    info : Info
-        The measurement info.
+    %(info_not_none)s
     threshold : float
         The threshold distance for what is considered short in meters.
 
@@ -183,9 +182,12 @@ def _fnirs_check_bads(info):
     # optodes are marked bad consistently.
     picks = _picks_to_idx(info, 'fnirs', exclude=[], allow_empty=True)
     for ii in picks[::2]:
-        bad_opto = set(info['bads']).intersection(info.ch_names[ii:ii + 2])
-        if len(bad_opto) == 1:
-            raise RuntimeError('NIRS bad labelling is not consistent')
+        want = info.ch_names[ii:ii + 2]
+        got = list(set(info['bads']).intersection(want))
+        if len(got) == 1:
+            raise RuntimeError(
+                f'NIRS bad labelling is not consistent, found {got} but '
+                f'needed {want}')
 
 
 def _fnirs_spread_bads(info):

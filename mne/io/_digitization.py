@@ -5,7 +5,7 @@
 #          Stefan Appelhoff <stefan.appelhoff@mailbox.org>
 #          Joan Massich <mailsik@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 import heapq
 from collections import Counter
@@ -138,7 +138,11 @@ class DigPoint(dict):
             id_ = ('%s #%s' % (id_, self['ident']))
         id_ = id_.rjust(10)
         cf = _coord_frame_name(self['coord_frame'])
-        pos = ('(%0.1f, %0.1f, %0.1f) mm' % tuple(1000 * self['r'])).ljust(25)
+        if 'voxel' in cf:
+            pos = ('(%0.1f, %0.1f, %0.1f)' % tuple(self['r'])).ljust(25)
+        else:
+            pos = ('(%0.1f, %0.1f, %0.1f) mm' %
+                   tuple(1000 * self['r'])).ljust(25)
         return ('<DigPoint | %s : %s : %s frame>' % (id_, pos, cf))
 
     # speed up info copy by only deep copying the mutable item
@@ -259,8 +263,9 @@ def _get_data_as_dict_from_dig(dig):
                 dig_ch_pos_location.append(d['r'])
 
     dig_coord_frames = set([d['coord_frame'] for d in dig])
-    assert len(dig_coord_frames) == 1, \
-        'Only single coordinate frame in dig is supported'  # XXX
+    if len(dig_coord_frames) != 1:
+        raise RuntimeError('Only single coordinate frame in dig is supported, '
+                           f'got {dig_coord_frames}')
 
     return Bunch(
         nasion=fids.get('nasion', None),

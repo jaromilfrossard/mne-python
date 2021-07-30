@@ -3,7 +3,7 @@
 #          Eric Larson <larson.eric.d@gmail.com>
 #          Lorenzo De Santis <lorenzo.de-santis@u-psud.fr>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 # The computations in this code were primarily derived from Matti Hämäläinen's
 # C code.
@@ -267,10 +267,7 @@ def _check_complete_surface(surf, copy=False, incomplete='raise', extra=''):
                'have fewer than three neighboring triangles [{}]{}'
                .format(_bem_surf_name[surf['id']], len(fewer), surf['ntri'],
                        ', '.join(str(f) for f in fewer), extra))
-        if incomplete == 'raise':
-            raise RuntimeError(msg)
-        else:
-            warn(msg)
+        _on_missing(on_missing=incomplete, msg=msg, name='on_defects')
     return surf
 
 
@@ -719,9 +716,7 @@ def make_sphere_model(r0=(0., 0., 0.04), head_radius=0.09, info=None,
         If float, compute spherical shells for EEG using the given radius.
         If 'auto', estimate an appropriate radius from the dig points in Info,
         If None, exclude shells (single layer sphere model).
-    info : instance of Info | None
-        Measurement info. Only needed if ``r0`` or ``head_radius`` are
-        ``'auto'``.
+    %(info)s Only needed if ``r0`` or ``head_radius`` are ``'auto'``.
     relative_radii : array-like
         Relative radii for the spherical shells.
     sigmas : array-like
@@ -827,8 +822,7 @@ def fit_sphere_to_headshape(info, dig_kinds='auto', units='m', verbose=None):
 
     Parameters
     ----------
-    info : instance of Info
-        Measurement info.
+    %(info_not_none)s
     %(dig_kinds)s
     units : str
         Can be "m" (default) or "mm".
@@ -868,8 +862,7 @@ def get_fitting_dig(info, dig_kinds='auto', exclude_frontal=True,
 
     Parameters
     ----------
-    info : instance of Info
-        The measurement info.
+    %(info_not_none)s
     %(dig_kinds)s
     %(exclude_frontal)s
         Default is True.

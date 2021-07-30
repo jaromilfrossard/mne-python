@@ -2,7 +2,7 @@
 #          Denis A. Engemann <denis.engemann@gmail.com>
 #          Eric Larson <larson.eric.d@gmail.com>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from copy import deepcopy
 
@@ -99,7 +99,52 @@ DEFAULTS = dict(
         alpha=None, resolution=1., surface_alpha=None, blending='mip',
         silhouette_alpha=None, silhouette_linewidth=2.),
     prefixes={'': 1e0, 'd': 1e1, 'c': 1e2, 'm': 1e3, 'µ': 1e6, 'u': 1e6,
-              'n': 1e9, 'p': 1e12, 'f': 1e15}
+              'n': 1e9, 'p': 1e12, 'f': 1e15},
+    transform_zooms=dict(
+        translation=None, rigid=None, affine=None, sdr=None),
+    transform_niter=dict(
+        translation=(100, 100, 10),
+        rigid=(100, 100, 10),
+        affine=(100, 100, 10),
+        sdr=(5, 5, 3)),
+    volume_label_indices=(
+        # Left and middle
+        4,  # Left-Lateral-Ventricle
+        5,  # Left-Inf-Lat-Vent
+
+        8,  # Left-Cerebellum-Cortex
+
+        10,  # Left-Thalamus-Proper
+        11,  # Left-Caudate
+        12,  # Left-Putamen
+        13,  # Left-Pallidum
+        14,  # 3rd-Ventricle
+        15,  # 4th-Ventricle
+        16,  # Brain-Stem
+        17,  # Left-Hippocampus
+        18,  # Left-Amygdala
+
+        26,  # Left-Accumbens-area
+
+        28,  # Left-VentralDC
+
+        # Right
+        43,  # Right-Lateral-Ventricle
+        44,  # Right-Inf-Lat-Vent
+
+        47,  # Right-Cerebellum-Cortex
+
+        49,  # Right-Thalamus-Proper
+        50,  # Right-Caudate
+        51,  # Right-Putamen
+        52,  # Right-Pallidum
+        53,  # Right-Hippocampus
+        54,  # Right-Amygdala
+
+        58,  # Right-Accumbens-area
+
+        60,  # Right-VentralDC
+    )
 )
 
 

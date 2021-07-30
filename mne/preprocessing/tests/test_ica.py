@@ -1,7 +1,7 @@
 # Author: Denis Engemann <denis.engemann@gmail.com>
 #         Alexandre Gramfort <alexandre.gramfort@inria.fr>
 #
-# License: BSD (3-clause)
+# License: BSD-3-Clause
 
 from contextlib import nullcontext
 from itertools import product
@@ -801,7 +801,8 @@ def test_ica_additional(method, tmpdir, short_raw_epochs):
     epochs_data = epochs.get_data().copy()
 
     with pytest.warns(RuntimeWarning, match='longer'):
-        idx, scores = ica.find_bads_ecg(raw, method='ctps', threshold='auto')
+        idx, scores = ica.find_bads_ecg(raw, method='ctps', threshold='auto',
+                                        start=0, stop=raw.times.size)
     assert_equal(len(scores), ica.n_components_)
     with pytest.warns(RuntimeWarning, match='longer'):
         idx, scores = ica.find_bads_ecg(raw, method='correlation',
@@ -812,7 +813,12 @@ def test_ica_additional(method, tmpdir, short_raw_epochs):
         idx, scores = ica.find_bads_eog(raw)
     assert_equal(len(scores), ica.n_components_)
 
-    idx, scores = ica.find_bads_ecg(epochs, method='ctps', threshold='auto')
+    with pytest.raises(ValueError, match='integer .* start and stop'):
+        idx, scores = ica.find_bads_ecg(epochs, start=0, stop=1000)
+
+    idx, scores = ica.find_bads_ecg(epochs, method='ctps', threshold='auto',
+                                    start=epochs.times[0],
+                                    stop=epochs.times[-1])
 
     assert_equal(len(scores), ica.n_components_)
     pytest.raises(ValueError, ica.find_bads_ecg, epochs.average(),
@@ -832,6 +838,9 @@ def test_ica_additional(method, tmpdir, short_raw_epochs):
 
     idx, scores = ica.find_bads_eog(evoked, ch_name='MEG 1441')
     assert_equal(len(scores), ica.n_components_)
+
+    with pytest.raises(ValueError, match='integer .* start and stop'):
+        idx, scores = ica.find_bads_ecg(evoked, start=0, stop=1000)
 
     idx, scores = ica.find_bads_ecg(evoked, method='correlation',
                                     threshold='auto')
@@ -1035,7 +1044,7 @@ def test_ica_twice(method):
 
 @requires_sklearn
 @pytest.mark.parametrize("method", ["fastica", "picard", "infomax"])
-def test_fit_params(method, tmpdir):
+def test_fit_methods(method, tmpdir):
     """Test fit_params for ICA."""
     _skip_check_picard(method)
     fit_params = {}
@@ -1068,6 +1077,32 @@ def test_fit_params(method, tmpdir):
         ica = read_ica(output_fname)
 
         assert ica.fit_params == fit_params_after_instantiation
+
+
+@pytest.mark.parametrize(
+    ('param_name', 'param_val'),
+    (
+        ('start', 0),
+        ('stop', 500),
+        ('decim', 2),
+        ('reject', dict(eeg=500e-6)),
+        ('flat', dict(eeg=1e-6))
+    )
+)
+def test_fit_params_epochs_vs_raw(param_name, param_val):
+    """Check that we get a warning when passing parameters that get ignored."""
+    method = 'infomax'
+    n_components = 3
+    max_iter = 1
+
+    raw = read_raw_fif(raw_fname).pick_types(meg=False, eeg=True)
+    events = read_events(event_name)
+    epochs = Epochs(raw, events=events)
+    ica = ICA(n_components=n_components, max_iter=max_iter, method=method)
+
+    fit_params = {param_name: param_val}
+    with pytest.warns(RuntimeWarning, match='parameters.*will be ignored'):
+        ica.fit(inst=epochs, **fit_params)
 
 
 @requires_sklearn
