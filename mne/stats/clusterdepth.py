@@ -112,6 +112,8 @@ def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, ma
         starting = [cli[0] % n_times == 0 for cli in clusters]
         ending = [cli[-1] + 1 % n_times == 0 for cli in clusters]
 
+        max_depth = max([len(cli) for cli in clusters])
+
         # cluster_stats = cluster_stats.astype(int)
 
         for depthi in range(max_depth):
