@@ -318,7 +318,7 @@ proj : bool | 'interactive' | 'reconstruct'
     .. versionchanged:: 0.21
        Support for 'reconstruct' was added.
 """
-docdict["topomap_ch_type"] = """
+docdict["evoked_topomap_ch_type"] = """
 ch_type : 'mag' | 'grad' | 'planar1' | 'planar2' | 'eeg' | None
     The channel type to plot. For 'grad', the gradiometers are collected in
     pairs and the RMS for each pair is plotted.
@@ -383,11 +383,22 @@ docdict["topomap_cbar_fmt"] = """
 cbar_fmt : str
     String format for colorbar values.
 """
-docdict["topomap_mask"] = """
-mask : ndarray of bool, shape (n_channels, n_times) | None
-    The channels to be marked as significant at a given time point.
-    Indices set to ``True`` will be considered. Defaults to ``None``.
+mask_base = """
+mask : ndarray of bool, shape {shape} | None
+    Array indicating channel{shape_appendix} to highlight with a distinct
+    plotting style{example}. Array elements set to ``True`` will be plotted
+    with the parameters given in ``mask_params``. Defaults to ``None``,
+    equivalent to an array of all ``False`` elements.
 """
+docdict['topomap_mask'] = mask_base.format(
+    shape='(n_channels,)', shape_appendix='(s)', example='')
+docdict['evoked_topomap_mask'] = mask_base.format(
+    shape='(n_channels, n_times)', shape_appendix='-time combinations',
+    example=' (useful for, e.g. marking which channels at which times a '
+            'statistical test of the data reaches significance)')
+docdict['patterns_topomap_mask'] = mask_base.format(
+    shape='(n_channels, n_patterns)', shape_appendix='-pattern combinations',
+    example='')
 docdict["topomap_mask_params"] = """
 mask_params : dict | None
     Additional plotting parameters for plotting significant sensors.
@@ -856,10 +867,11 @@ projection : bool
     must be set to ``False`` (the default in this case).
 """
 docdict['set_eeg_reference_ch_type'] = """
-ch_type : 'auto' | 'eeg' | 'ecog' | 'seeg' | 'dbs'
-    The name of the channel type to apply the reference to. If 'auto',
-    the first channel type of eeg, ecog, seeg or dbs that is found (in that
-    order) will be selected.
+ch_type : list of str | str
+    The name of the channel type to apply the reference to.
+    Valid channel types are ``'auto'``, ``'eeg'``, ``'ecog'``, ``'seeg'``,
+    ``'dbs'``. If ``'auto'``, the first channel type of eeg, ecog, seeg or dbs
+    that is found (in that order) will be selected.
 
     .. versionadded:: 0.19
 """
@@ -2479,9 +2491,21 @@ fmt : 'auto' | 'eeglab'
     from the filename extension. See supported formats above for more
     information.
 """
+docdict['export_params_physical_range'] = """
+physical_range : str | tuple
+    The physical range of the data. If 'auto' (default), then
+    it will infer the physical min and max from the data itself,
+    taking the minimum and maximum values per channel type.
+    If it is a 2-tuple of minimum and maximum limit, then those
+    physical ranges will be used. Only used for exporting EDF files.
+"""
 docdict['export_eeglab_note'] = """
 For EEGLAB exports, channel locations are expanded to full EEGLAB format.
 For more details see :func:`eeglabio.utils.cart_to_eeglab`.
+"""
+docdict['export_edf_note'] = """
+For EDF exports, only EEG, ECoG and sEEG data are supported. In
+addition, EDF does not support storing a montage.
 """
 
 # Other
@@ -2533,10 +2557,10 @@ niter : dict | tuple | None
     step as a key. Steps not in the dictionary will use the default value.
     The default (None) is equivalent to:
 
-        niter=dict(translation=(100, 100, 10),
-                   rigid=(100, 100, 10),
-                   affine=(100, 100, 10),
-                   sdr=(5, 5, 3))
+        niter=dict(translation=(10000, 1000, 100),
+                   rigid=(10000, 1000, 100),
+                   affine=(10000, 1000, 100),
+                   sdr=(10, 10, 5))
 """
 docdict['pipeline'] = """
 pipeline : str | tuple
@@ -2575,6 +2599,48 @@ pipeline : str | tuple
     ``'affines'``
         The affine steps (first three) will be performed, i.e., omitting
         the SDR step.
+"""
+
+# 3D viewing
+docdict['meg'] = """
+meg : str | list | bool | None
+    Can be "helmet", "sensors" or "ref" to show the MEG helmet, sensors or
+    reference sensors respectively, or a combination like
+    ``('helmet', 'sensors')`` (same as None, default). True translates to
+    ``('helmet', 'sensors', 'ref')``.
+"""
+docdict['eeg'] = """
+eeg : bool | str | list
+    String options are:
+
+    - "original" (default; equivalent to ``True``)
+        Shows EEG sensors using their digitized locations (after
+        transformation to the chosen ``coord_frame``)
+    - "projected"
+        The EEG locations projected onto the scalp, as is done in
+        forward modeling
+
+    Can also be a list of these options, or an empty list (``[]``,
+    equivalent of ``False``).
+"""
+docdict['fnirs'] = """
+fnirs : str | list | bool | None
+    Can be "channels", "pairs", "detectors", and/or "sources" to show the
+    fNIRS channel locations, optode locations, or line between
+    source-detector pairs, or a combination like ``('pairs', 'channels')``.
+    True translates to ``('pairs',)``.
+"""
+docdict['ecog'] = """
+ecog : bool
+    If True (default), show ECoG sensors.
+"""
+docdict['seeg'] = """
+seeg : bool
+    If True (default), show sEEG electrodes.
+"""
+docdict['dbs'] = """
+dbs : bool
+    If True (default), show DBS (deep brain stimulation) electrodes.
 """
 docdict_indented = {}
 
