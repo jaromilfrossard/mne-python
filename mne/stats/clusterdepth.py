@@ -7,18 +7,17 @@
 import numpy as np
 import scipy.sparse as sparse
 import scipy.stats as stats
-from ..parallel import parallel_func, check_n_jobs
-from ..stats.cluster_level import (_check_fun,
-                                   _setup_adjacency, _find_clusters, _cluster_indices_to_mask,
-                                   _cluster_mask_to_indices, _get_partitions_from_adjacency,
-                                   _do_permutations, _pval_from_histogram, _reshape_clusters)
-from ..utils import (verbose, split_list, ProgressBar, _check_option, _validate_type, check_random_state, logger, warn)
+from mne.parallel import parallel_func, check_n_jobs
+from mne.stats.cluster_level import (_check_fun,
+                                     _setup_adjacency, _find_clusters, _cluster_indices_to_mask,
+                                     _cluster_mask_to_indices, _get_partitions_from_adjacency)
+from mne.utils import (verbose, split_list, ProgressBar, _check_option, _validate_type, check_random_state, logger, warn)
 
 
 @verbose
 def spatio_temporal_clusterdepth_test(
         X, threshold=None, n_permutations=1024, tail=0, stat_fun=None,
-        n_jobs=1, seed=None, border="reverse",
+        n_jobs=1, seed=None,
         out_type='indices', exclude=None, verbose=None,
         check_disjoint=False, buffer_size=1000):
     # n_samples, n_times, n_vertices = X[0].shape
@@ -31,7 +30,7 @@ def spatio_temporal_clusterdepth_test(
     return permutation_clusterdepth_test(
         X, threshold=threshold, stat_fun=stat_fun, tail=tail,
         n_permutations=n_permutations,
-        n_jobs=n_jobs, seed=seed, border=border, buffer_size=buffer_size,
+        n_jobs=n_jobs, seed=seed, buffer_size=buffer_size,
         out_type='indices', exclude=exclude, check_disjoint=check_disjoint,
         verbose=verbose)
 
@@ -40,17 +39,17 @@ def spatio_temporal_clusterdepth_test(
 def permutation_clusterdepth_test(
         X, threshold=None, n_permutations=1024, tail=0, stat_fun=None,
         n_jobs=1, seed=None, exclude=None,
-        border="reverse", out_type='indices',
+        out_type='indices',
         buffer_size=1000, check_disjoint=False, verbose=None):
     stat_fun, threshold = _check_fun(X, stat_fun, threshold, tail, 'between')
     return _permutation_clusterdepth_test(
         X=X, threshold=threshold, n_permutations=n_permutations, tail=tail,
         stat_fun=stat_fun, n_jobs=n_jobs, seed=seed,
-        out_type='indices', exclude=exclude, border=border,
+        out_type='indices', exclude=exclude,
         check_disjoint=check_disjoint, buffer_size=buffer_size)
 
 
-def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, max_depth, tail, adjacency, stat_fun,
+def _do_permutations_clusterdepth(X_full, slices, threshold, n_times, tail, adjacency, stat_fun,
                                   include, partitions, orders, sample_shape, buffer_size, progress_bar):
     n_samp, n_vars = X_full.shape
 
@@ -58,8 +57,8 @@ def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, ma
         buffer_size = None  # don't use buffer for few variables
 
     # allocate space for output
-    clusterdepth_head = [[0.] * max_depth for _ in range(len(orders))]
-    clusterdepth_tail = [[0.] * max_depth for _ in range(len(orders))]
+    clusterdepth_head = [[] for _ in range(len(orders))]
+    clusterdepth_tail = [[] for _ in range(len(orders))]
 
     if buffer_size is not None:
         # allocate buffer, so we don't need to allocate memory during loop
@@ -110,49 +109,59 @@ def _do_permutations_clusterdepth(X_full, slices, threshold, border, n_times, ma
 
         # identify which clusters is at the border
         starting = [cli[0] % n_times == 0 for cli in clusters]
-        ending = [cli[-1] + 1 % n_times == 0 for cli in clusters]
+        clh = [i for indx,i in enumerate(clusters) if not starting[indx]]
 
-        max_depth = max([len(cli) for cli in clusters])
+        ending = [cli[-1] + 1 % n_times == 0 for cli in clusters]
+        clt = [i for indx,i in enumerate(clusters) if not ending[indx]]
+
+
+        max_depth = max([len(cli) for cli in clusters], default=0)
 
         # cluster_stats = cluster_stats.astype(int)
 
-        for depthi in range(max_depth):
-            mx_cl = [0.] * len(clusters)
-            for cli in range(len(clusters)):
-                if len(clusters[cli]) >= depthi + 1:
-                    # reversing the clusters at the border
-                    if starting[cli] & (border == "reverse"):
-                        mx_cl[cli] = t_obs_surr[clusters[cli][-1 - depthi]]
-                    else:
-                        mx_cl[cli] = t_obs_surr[clusters[cli][depthi]]
-                else:
-                    mx_cl[cli] = 0.
-            if tail == 1:
-                clusterdepth_head[seed_idx][depthi] = max(mx_cl)
-            elif tail == 0:
-                clusterdepth_head[seed_idx][depthi] = max([abs(i) for i in mx_cl])
-            elif tail == -1:
-                clusterdepth_head[seed_idx][depthi] = min(mx_cl)
+        clusterdepth_head[seed_idx] = [0.0] * max_depth
 
+        for depthi in range(max_depth):
+            mx_cl = [0.] * len(clh)
+            for cli in range(len(clh)):
+                if len(clh[cli]) >= depthi + 1:
+                    # reversing the clusters at the border
+                    mx_cl[cli] = t_obs_surr[clh[cli][depthi]]
+                else:
+                    mx_cl[cli] = 0.0
+
+            if tail == 1:
+                clusterdepth_head[seed_idx][depthi] = max(mx_cl, default=0.0)
+            elif tail == 0:
+                clusterdepth_head[seed_idx][depthi] = max([abs(i) for i in mx_cl], default=0.0)
+
+            elif tail == -1:
+                clusterdepth_head[seed_idx][depthi] = min(mx_cl, default=0.0)
         # cdepth_tail = [0.] * max_depth
 
+        clusterdepth_tail[seed_idx] = [0.0] * max_depth
         for depthi in range(max_depth):
-            mx_cl = [0.] * len(clusters)
-            for cli in range(len(clusters)):
-                if len(clusters[cli]) >= depthi + 1:
-                    if ending[cli] & (border == "reverse"):
-                        mx_cl[cli] = t_obs_surr[clusters[cli][depthi]]
-                    else:
-                        mx_cl[cli] = t_obs_surr[clusters[cli][-1 - depthi]]
+            mx_cl = [0.0] * len(clt)
+            for cli in range(len(clt)):
+                if len(clt[cli]) >= depthi + 1:
+                    mx_cl[cli] = t_obs_surr[clt[cli][-1 - depthi]]
                 else:
-                    mx_cl[cli] = 0.
+                    mx_cl[cli] = 0.0
             if tail == 1:
-                clusterdepth_tail[seed_idx][-1 - depthi] = max(mx_cl)
+                clusterdepth_tail[seed_idx][-1 - depthi] = max(mx_cl, default=0.0)
             elif tail == 0:
-                clusterdepth_tail[seed_idx][-1 - depthi] = max([abs(i) for i in mx_cl])
+                clusterdepth_tail[seed_idx][-1 - depthi] = max([abs(i) for i in mx_cl], default=0.0)
             elif tail == -1:
-                clusterdepth_tail[seed_idx][-1 - depthi] = min(mx_cl)
+                clusterdepth_tail[seed_idx][-1 - depthi] = min(mx_cl, default=0.0)
 
+    #fill zero
+    max_depth = max([len(i) for i in clusterdepth_head], default=0)
+    clusterdepth_head = [i+([0.0]*(max_depth-len(i))) for i in clusterdepth_head]
+    #clusterdepth_head = np.array(clusterdepth_head)
+
+    max_depth = max([len(i) for i in clusterdepth_tail], default=0)
+    clusterdepth_tail = [([0.0]*(max_depth-len(i)))+i for i in clusterdepth_tail]
+    #clusterdepth_tail = np.array(clusterdepth_tail)
     return [clusterdepth_head, clusterdepth_tail]
 
 
@@ -186,7 +195,7 @@ def troendle(distribution, statistics, tail):
 
 
 def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
-                                   n_jobs, seed, border, out_type, exclude,
+                                   n_jobs, seed, out_type, exclude,
                                    check_disjoint, buffer_size):
     n_jobs = check_n_jobs(n_jobs)
     """Aux Function.
@@ -268,6 +277,15 @@ def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
                          partitions=partitions, t_power=0,
                          show_info=True)
     clusters, cluster_length = out
+
+    starting = [cli[0] % n_times == 0 for cli in clusters]
+    ending = [cli[-1] + 1 % n_times == 0 for cli in clusters]
+
+    clusters = [i for indx, i in enumerate(clusters) if not starting[indx] and not ending[indx]]
+    cluster_length = [i for indx, i in enumerate(cluster_length) if not starting[indx] and not ending[indx]]
+
+
+
     cluster_length = [int(li) for li in cluster_length]
 
     max_depth = max(cluster_length)
@@ -334,7 +352,7 @@ def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
 
     with ProgressBar(len(orders)) as progress_bar:
         H0 = parallel(
-            my_do_perm_func(X_full, slices, threshold, border, n_times, max_depth, tail, adjacency,
+            my_do_perm_func(X_full, slices, threshold, n_times, tail, adjacency,
                             stat_fun, this_include, partitions,
                             order, sample_shape, buffer_size,
                             progress_bar.subset(idx))
@@ -346,11 +364,18 @@ def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
 
     pvalues = [None] * len(clusters)
     for i in range(len(clusters)):
-        statistics = np.array(t_obs[clusters[i]])
-        statistics.shape = (1, len(clusters[i]))
-        pvalues_head = troendle(clusterdepth_head[:, :statistics.shape[1]], statistics, tail=tail)
-        pvalues_tail = troendle(clusterdepth_tail[:, clusterdepth_tail.shape[1] - statistics.shape[1]:], statistics,
-                                tail=tail)
+        nfill = clusterdepth_head.shape[1]-len(clusters[i])
+        statistics = np.concatenate((t_obs[clusters[i]], np.zeros(nfill)))
+        statistics.shape = (1, statistics.shape[0])
+        pvalues_head = troendle(clusterdepth_head, statistics, tail=tail)
+        pvalues_head = pvalues_head[range(len(clusters[i]))]
+
+        nfill = clusterdepth_tail.shape[1] - len(clusters[i])
+        statistics = np.concatenate((np.zeros(nfill), t_obs[clusters[i]]))
+        statistics.shape = (1, statistics.shape[0])
+        pvalues_tail = troendle(clusterdepth_tail, statistics, tail=tail)
+        pvalues_tail = pvalues_tail[range(nfill, len(pvalues_tail))]
+
         pvalues[i] = np.maximum(pvalues_head, pvalues_tail)
 
     # clusters = _reshape_clusters(clusters, sample_shape)
