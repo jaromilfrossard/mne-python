@@ -288,7 +288,7 @@ def _permutation_clusterdepth_test(X, threshold, n_permutations, tail, stat_fun,
 
     cluster_length = [int(li) for li in cluster_length]
 
-    max_depth = max(cluster_length)
+    max_depth = max(cluster_length, default=0)
 
     logger.info('Found %d clusters' % len(clusters))
 
